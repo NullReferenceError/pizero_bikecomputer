@@ -306,7 +306,17 @@ Every time you connect, it is good idea to check the module with the sample prog
 
 <img src="https://user-images.githubusercontent.com/12926652/91796772-f84a0100-ec5b-11ea-8610-508f64692c9e.png" width=360 />
 
-Connect the GPS module and Qwiic SHIM for Raspberry Pi.
+Connect the GPS module and Qwiic SHIM for Raspberry Pi using the UART connections.
+
+- https://learn.sparkfun.com/tutorials/gnss-receiver-breakout---max-m10s-qwiic-hookup-guide/all?print=1
+
+| Name | Raspberry Pi | GPS Module  
+|:-|:-:|:-:|
+| GND | IO 34 | GND | 
+| TX | ?? | TX | 
+| RX | ?? | RX | 
+| ?  | ?? |  | 
+
 
 <img src="https://user-images.githubusercontent.com/12926652/91796775-f97b2e00-ec5b-11ea-8fea-52658208261f.png" width=360 />
 
