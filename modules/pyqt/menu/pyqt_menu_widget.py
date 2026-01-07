@@ -55,12 +55,21 @@ class MenuWidget(QtWidgets.QWidget):
 
         self.back_button = topbar.TopBarBackButton((self.icon_x, self.icon_y))
         self.page_name_label = topbar.TopBarLabel(self.page_name)
+        self.right_button_container = QtWidgets.QWidget()
+        self.right_button_container.setFixedSize(self.icon_x, self.icon_y)
+        self.right_button_layout = QtWidgets.QHBoxLayout(
+            self.right_button_container
+        )
+        self.right_button_layout.setContentsMargins(0, 0, 0, 0)
+        self.right_button_layout.setSpacing(0)
 
         self.top_bar_layout = QtWidgets.QHBoxLayout()
         self.top_bar_layout.setContentsMargins(5, 5, 5, 5)
         self.top_bar_layout.setSpacing(0)
         self.top_bar_layout.addWidget(self.back_button)
         self.top_bar_layout.addWidget(self.page_name_label)
+        self.top_bar_layout.addWidget(self.right_button_container)
+        self.top_bar_layout.setStretch(1, 1)
 
         self.top_bar.setLayout(self.top_bar_layout)
 
@@ -301,10 +310,13 @@ class ListWidget(MenuWidget):
             if k == default_value:
                 default_index = i
                 break
-        c = self.list.itemWidget(self.list.currentItem())
-        if default_index is not None and c is not None:
-            self.list.setCurrentRow(default_index)
-            c.setFocus()
+
+        if default_index is not None:
+            list_item = self.list.item(default_index)
+            widget = self.list.itemWidget(list_item)
+            if widget is not None:
+                self.list.setCurrentRow(default_index)
+                widget.setFocus()
 
     def get_default_value(self):
         return None
@@ -427,7 +439,7 @@ class ConnectivityMenuWidget(MenuWidget):
         button_conf = (
             # Name(page_name), button_attribute, connected functions, layout
             ("Auto BT Tethering","toggle",lambda: self.bt_auto_tethering(True)),
-            ("Select BT device", "submenu", self.bt_tething),
+            ("Select BT device", "submenu", self.select_bt_device),
             ("Live Track", "toggle", lambda: self.onoff_live_track(True)),
             ("", None, None),
             ("Gadgetbridge", "toggle", self.onoff_ble_uart_service),
@@ -473,11 +485,10 @@ class ConnectivityMenuWidget(MenuWidget):
     def bt_auto_tethering(self, change=True):
         if change:
             self.config.G_AUTO_BT_TETHERING = not self.config.G_AUTO_BT_TETHERING
-            self.config.network.reset_bt_error_counts()
         self.buttons["Auto BT Tethering"].change_toggle(self.config.G_AUTO_BT_TETHERING)
         self.buttons["Select BT device"].onoff_button(self.config.G_AUTO_BT_TETHERING)
 
-    def bt_tething(self):
+    def select_bt_device(self):
         self.change_page("BT Tethering", preprocess=True, run_bt_tethering=False)
     
     @qasync.asyncSlot()

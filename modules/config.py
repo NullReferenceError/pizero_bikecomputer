@@ -9,7 +9,7 @@ from glob import glob
 import numpy as np
 import oyaml as yaml
 
-from modules.app_logger import CustomRotatingFileHandler, app_logger
+from modules.app_logger import app_logger
 from modules.map_config import add_map_config
 from modules.helper.setting import Setting
 from modules.button_config import Button_Config
@@ -57,7 +57,6 @@ class Config:
     G_POWER_W_PRIME_ALGORITHM = "WATERWORTH"  # WATERWORTH, DIFFERENTIAL
 
     G_USE_PCB_PIZERO_BIKECOMPUTER = False
-    G_PCB_BACKLIGHT = ""  # "PIZERO_BIKECOMPUTER", "SWITCH_SCIENCE_MIP_BOARD"
 
     ###########################
     # fixed or pointer values #
@@ -90,12 +89,11 @@ class Config:
     # log setting
     G_LOG_DIR = "log"
     G_LOG_DB = os.path.join(G_LOG_DIR, "log.db")
-    G_LOG_OUTPUT_FILE = False
     G_LOG_DEBUG_FILE = os.path.join(G_LOG_DIR, "debug.log")
 
     # map setting
     # default map (can overwrite in settings.conf)
-    G_MAP = "wikimedia"
+    G_MAP = "openstreetmap"
     G_MAP_CONFIG = {}
     # external input of G_MAP_CONFIG
     G_MAP_LIST = "map.yaml"
@@ -113,7 +111,7 @@ class Config:
 
     # DEM tile (Digital Elevation Model)
     G_USE_DEM_TILE = False
-    G_DEM_MAP = "jpn_kokudo_chiri_in_DEM5A" #mapbox_terrain_rgb, jpn_kokudo_chiri_in_DEM5A
+    G_DEM_MAP = "jpn_kokudo_chiri_in" #mapbox_terrain_rgb, jpn_kokudo_chiri_in
     G_DEM_MAP_CONFIG = {}
 
     # wind speed, direction and headwind
@@ -394,6 +392,13 @@ class Config:
     G_BT_PAN_DEVICE = ""
     G_AUTO_BT_TETHERING = False
 
+    # Zwift Click V2 (BLE remote buttons)
+    # Keep only the user-facing enable flag here; protocol/tuning defaults live in zwift_click_v2.py.
+    G_ZWIFT_CLICK_V2 = {
+        "STATUS": False,
+        "ADDRESS": "",
+    }
+
     #######################
     # class objects       #
     #######################
@@ -431,7 +436,6 @@ class Config:
         parser.add_argument("--gui")
         parser.add_argument("--headless", action="store_true", default=False)
         parser.add_argument("--init", action="store_true", default=False)
-        parser.add_argument("--output_log", action="store_true", default=False)
         parser.add_argument("--calib_mag", action="store_true", default=False)
         parser.add_argument("--calib_pitch_roll", action="store_true", default=False)
 
@@ -452,8 +456,6 @@ class Config:
             self.G_HEADLESS = True
         if args.init:
             self.G_INIT_ONLY = True
-        if args.output_log:
-            self.G_LOG_OUTPUT_FILE = True
         if args.calib_mag:
             self.G_IMU_CALIB["MAG"] = True
             self.G_I2C_INTERVAL = 0.1
@@ -478,16 +480,6 @@ class Config:
         os.makedirs(self.G_SCREENSHOT_DIR, exist_ok=True)
         os.makedirs(self.G_LOG_DIR, exist_ok=True)
 
-        if self.G_LOG_OUTPUT_FILE and self.G_LOG_DEBUG_FILE:
-            delay = not os.path.exists(self.G_LOG_DEBUG_FILE)
-            fh = CustomRotatingFileHandler(self.G_LOG_DEBUG_FILE, delay=delay)
-            fh.doRollover()
-            fh_formatter = logging.Formatter(
-                "%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S"
-            )
-            fh.setFormatter(fh_formatter)
-            app_logger.addHandler(fh)
-
         # layout file
         if not os.path.exists(self.G_LAYOUT_FILE):
             default_layout_file = os.path.join("layouts", "layout-cycling.yaml")
@@ -511,7 +503,7 @@ class Config:
 
         if self.G_MAP not in self.G_MAP_CONFIG:
             app_logger.error(f"{self.G_MAP} does not exist in {self.G_MAP_LIST}")
-            self.G_MAP = "wikimedia"
+            self.G_MAP = "openstreetmap"
         if self.G_MAP_CONFIG[self.G_MAP].get("use_mbtiles") and not os.path.exists(
             os.path.join("maptile", f"{self.G_MAP}.mbtiles")
         ):
@@ -533,35 +525,26 @@ class Config:
         else:
             self.G_ANT["INTERVAL"] = 2
 
-        # coroutine loop
-        self.init_loop()
-
         self.log_time = datetime.now()
 
         self.button_config = Button_Config(self)
 
-    def init_loop(self, call_from_gui=False):
-        if self.G_GUI_MODE in ["PyQt", "QML"]:
-            if call_from_gui:
-                # workaround for latest qasync and older version(~0.24.0)
-                asyncio.events._set_running_loop(self.loop)
-                asyncio.set_event_loop(self.loop)
-                self.start_coroutine()
-        else:
-            if call_from_gui:
-                self.loop = asyncio.get_event_loop()
-                self.loop.set_debug(True)
-                asyncio.set_event_loop(self.loop)
-
-    def start_coroutine(self):
+    @property
+    def loop(self):
+        #return asyncio.get_running_loop()
+        if self._loop is None:
+            raise RuntimeError("Event loop has not been initialized yet.")
+        return self._loop
+    
+    async def start_coroutine(self):
+        self._loop = asyncio.get_running_loop()
+        self.app_close_event = asyncio.Event()
         self.logger.start_coroutine()
         self.display.start_coroutine()
 
         # delay init start
         asyncio.create_task(self.delay_init())
-    
-    async def start_coroutine_async(self):
-        self.start_coroutine()
+        await self.app_close_event.wait()
 
     async def delay_init(self):
         await asyncio.sleep(0.01)
@@ -579,7 +562,7 @@ class Config:
         if self.G_IS_RASPI:
             await self.gui.set_boot_status("initialize bluetooth modules...")
 
-            from modules.helper.bt_pan import (
+            from modules.helper.bluetooth.bt_pan import (
                 BTPanDbus,
                 BTPanDbusFast,
                 HAS_DBUS_FAST,
@@ -599,9 +582,9 @@ class Config:
 
         # GadgetBridge (has to be before gui but after sensors for proper init state of buttons)
         if self.G_IS_RASPI:
-            try:
-                from modules.helper.ble_gatt_server import GadgetbridgeService
+            from modules.helper.bluetooth import HAS_GADGETBRIDGE, GadgetbridgeService
 
+            if HAS_GADGETBRIDGE and GadgetbridgeService is not None:
                 self.ble_uart = GadgetbridgeService(
                     self.G_PRODUCT,
                     self.logger.sensor.sensor_gps,
@@ -611,9 +594,10 @@ class Config:
                         self.G_GADGETBRIDGE["USE_GPS"],
                     ),
                 )
-
-            except Exception as e:  # noqa
-                app_logger.info(f"Gadgetbridge service not initialized: {e}")
+            else:
+                app_logger.info(
+                    "Gadgetbridge service not initialized: Gadgetbridge dependencies not installed"
+                )
 
         # gui
         await self.gui.set_boot_status("initialize screens...")
@@ -626,8 +610,10 @@ class Config:
         self.boot_time += delta
 
         await self.logger.resume_start_stop()
+        await self.gui.set_boot_status("")
 
         if self.G_INIT_ONLY:
+            await self.gui.set_boot_status("initializing...")
             await asyncio.sleep(30)
             await self.quit()
 
@@ -666,6 +652,9 @@ class Config:
                 # test other functions #
                 elif key == "i" and self.gui and self.gui.map_widget:
                     self.gui.map_widget.modify_map_tile()
+                elif key == "@" and self.gui and self.gui.map_widget:
+                    self.gui.show_dialog_ok_only(fn=None, title="test")
+                    #self.gui.show_popup(f"test", 3)
         except asyncio.CancelledError:
             pass
 
@@ -738,27 +727,30 @@ class Config:
                 pass
 
     async def quit(self):
-        app_logger.info("quit")
+        app_logger.info("########## QUIT START ##########")
 
         if self.ble_uart is not None:
             await self.ble_uart.quit()
         await self.network.quit()
+        self.delete_weather_overlay_tiles()
+        app_logger.info(" 1: network")
 
         if self.G_MANUAL_STATUS == "START":
             self.logger.start_and_stop_manual()
-        self.display.quit()
-
+        self.logger.remove_handler()
         await self.logger.quit()
         self.setting.write_config()
         self.state.delete()
+        app_logger.info(" 2: logger & state")
 
-        self.delete_weather_overlay_tiles()
+        self.display.quit()
+        app_logger.info(" 3: display")
 
+        self.app_close_event.set()
         await asyncio.sleep(0.5)
         await self.kill_tasks()
-        self.logger.remove_handler()
 
-        app_logger.info("quit done")
+        app_logger.info("########## QUIT END   ##########")
 
     async def power_off(self):
         service_state = is_running_as_service() if self.G_IS_RASPI else False

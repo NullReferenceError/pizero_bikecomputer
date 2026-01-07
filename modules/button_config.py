@@ -15,7 +15,7 @@ class Button_Config:
             "MAIN": {
                 "A": ("scroll_prev", "get_screenshot"),
                 "B": ("count_laps", "reset_count"),
-                "C": ("multiscan", ""),
+                "C": ("multiscan", "toggle_fake_trainer"),
                 "D": ("start_and_stop_manual", ""),
                 "E": ("scroll_next", "enter_menu"),
             },
@@ -94,6 +94,87 @@ class Button_Config:
                 "PAGE": ("", ""),  # go along the route / back along the route
                 "CUSTOM": ("change_mode", "map_move_x_minus"),
                 "LAP": ("map_move_x_plus",),
+            },
+        },
+        # Zwift Click V2 (BLE)
+        "Zwift_Click_V2": {
+            "MAIN": {
+                "NAVIGATION_UP": ("", ""),
+                "NAVIGATION_DOWN": ("", ""),
+                "NAVIGATION_LEFT": ("scroll_prev", ""),
+                "NAVIGATION_RIGHT": ("scroll_next", ""),
+                "SHIFT_UP_LEFT": ("", ""),
+                "SHIFT_UP_RIGHT": ("", ""),
+                "SHIFT_UP_BOTH": ("", ""),
+                "A": ("start_and_stop_manual", ""),
+                "B": ("count_laps", "reset_count"),
+                "Y": ("enter_menu", ""),
+                "Z": ("turn_on_off_light", ""),
+            },
+            "MENU": {
+                "NAVIGATION_UP": ("press_shift_tab", ""),
+                "NAVIGATION_DOWN": ("press_tab", ""),
+                "NAVIGATION_LEFT": ("back_menu", ""),
+                "NAVIGATION_RIGHT": ("press_space", ""),
+                "SHIFT_UP_LEFT": ("", ""),
+                "SHIFT_UP_RIGHT": ("", ""),
+                "SHIFT_UP_BOTH": ("", ""),
+                "A": ("press_space", ""),
+                "B": ("back_menu", ""),
+                "Y": ("", ""),
+                "Z": ("", ""),
+            },
+            "MAP": {
+                "NAVIGATION_UP": ("", ""),
+                "NAVIGATION_DOWN": ("", ""),
+                "NAVIGATION_LEFT": ("scroll_prev", "map_overlay_prev_time"),
+                "NAVIGATION_RIGHT": ("scroll_next", "map_overlay_next_time"),
+                "SHIFT_UP_LEFT": ("map_zoom_minus", ""),
+                "SHIFT_UP_RIGHT": ("map_zoom_plus", ""),
+                "SHIFT_UP_BOTH": ("", ""),
+                "A": ("start_and_stop_manual", ""),
+                "B": ("count_laps", "reset_count"),
+                "Y": ("change_mode", ""),
+                "Z": ("change_map_overlays", ""),
+            },
+            "MAP_1": {
+                "NAVIGATION_UP": ("map_move_y_plus", ""),
+                "NAVIGATION_DOWN": ("map_move_y_minus", ""),
+                "NAVIGATION_LEFT": ("map_move_x_minus", "map_overlay_prev_time"),
+                "NAVIGATION_RIGHT": ("map_move_x_plus", "map_overlay_next_time"),
+                "SHIFT_UP_LEFT": ("map_zoom_minus", ""),
+                "SHIFT_UP_RIGHT": ("map_zoom_plus", ""),
+                "SHIFT_UP_BOTH": ("", ""),
+                "A": ("start_and_stop_manual", ""),
+                "B": ("count_laps", "reset_count"),
+                "Y": ("change_mode", ""),
+                "Z": ("change_map_overlays", ""),
+            },
+            "COURSE_PROFILE": {
+                "NAVIGATION_UP": ("", ""),
+                "NAVIGATION_DOWN": ("", ""),
+                "NAVIGATION_LEFT": ("scroll_prev", ""),
+                "NAVIGATION_RIGHT": ("scroll_next", ""),
+                "SHIFT_UP_LEFT": ("map_zoom_minus", ""),
+                "SHIFT_UP_RIGHT": ("map_zoom_plus", ""),
+                "SHIFT_UP_BOTH": ("", ""),
+                "A": ("start_and_stop_manual", ""),
+                "B": ("count_laps", "reset_count"),
+                "Y": ("change_mode", ""),
+                "Z": ("", ""),
+            },
+            "COURSE_PROFILE_1": {
+                "NAVIGATION_UP": ("", ""),
+                "NAVIGATION_DOWN": ("", ""),
+                "NAVIGATION_LEFT": ("map_move_x_minus", ""),
+                "NAVIGATION_RIGHT": ("map_move_x_plus", ""),
+                "SHIFT_UP_LEFT": ("map_zoom_minus", ""),
+                "SHIFT_UP_RIGHT": ("map_zoom_plus", ""),
+                "SHIFT_UP_BOTH": ("", ""),
+                "A": ("start_and_stop_manual", ""),
+                "B": ("count_laps", "reset_count"),
+                "Y": ("change_mode", ""),
+                "Z": ("", ""),
             },
         },
         # GPIO button action (short press / long press) from gui_pyqt
@@ -217,25 +298,24 @@ class Button_Config:
 
         w_index = self.config.gui.stack_widget.currentIndex()
         if w_index == 1:
-            if (
-                self.config.gui.main_page.widget(
-                    self.config.gui.main_page.currentIndex()
-                )
-                == self.config.gui.map_widget
-            ):
-                if not self.G_BUTTON_MODE_IS_CHANGE:
-                    self.G_PAGE_MODE = "MAP"
-            elif (
-                self.config.gui.main_page.widget(
-                    self.config.gui.main_page.currentIndex()
-                )
-                == self.config.gui.course_profile_graph_widget
-            ):
-                if not self.G_BUTTON_MODE_IS_CHANGE:
-                    self.G_PAGE_MODE = "COURSE_PROFILE"
+            current_widget = self.config.gui.main_page.widget(
+                self.config.gui.main_page.currentIndex()
+            )
+            if current_widget == self.config.gui.map_widget:
+                mode_key = "MAP"
+            elif current_widget == self.config.gui.course_profile_graph_widget:
+                mode_key = "COURSE_PROFILE"
             else:
-                if not self.G_BUTTON_MODE_IS_CHANGE:
-                    self.G_PAGE_MODE = "MAIN"
+                mode_key = "MAIN"
+
+            pages = self.G_BUTTON_MODE_PAGES.get(mode_key)
+            if pages:
+                mode_index = self.G_BUTTON_MODE_INDEX.get(mode_key, 0)
+                if mode_index < 0 or mode_index >= len(pages):
+                    mode_index = 0
+                self.G_PAGE_MODE = pages[mode_index]
+            else:
+                self.G_PAGE_MODE = mode_key
             # for no implementation
             if self.G_PAGE_MODE not in self.G_BUTTON_DEF[button_hard]:
                 self.G_PAGE_MODE = "MAIN"
@@ -250,8 +330,10 @@ class Button_Config:
         func_str = self.G_BUTTON_DEF[button_hard][self.G_PAGE_MODE][press_button][index]
         if func_str in ("", "dummy"):
             return
-        
+
         getattr(self.config.gui, func_str)()
+        #self.config.loop.call_soon_threadsafe(self.config.gui.scroll, 1)
+        #self.config.loop.call_soon_threadsafe(self.config.gui.scroll_next)
 
     def change_mode(self):
         # check MAP

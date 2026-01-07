@@ -9,14 +9,18 @@
 /courses/*html*
 /fonts/*
 /.idea/
+/.serena/
 *.iml
 /.vscode/
 /.venv/
+/tmp/
+/.tmp/
 __pycache__/
 *.py[cod]
 *.qml
 *.qmlc
 *.db
+*.pdf
 *.fit
 *.tcx
 *.swp
@@ -33,3 +37,5 @@ nohup.out
 screenlog.*
 gmon.out
 .DS_Store
+.lgd-nfy0
+AGENTS.md

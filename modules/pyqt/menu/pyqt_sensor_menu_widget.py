@@ -9,6 +9,7 @@ class SensorMenuWidget(MenuWidget):
         button_conf = (
             # Name(page_name), button_attribute, connected functions, layout
             ("ANT+ Sensors", "submenu", self.ant_sensors_menu),
+            ("BLE Sensors", "submenu", self.ble_sensors_menu),
             ("Wheel Size", "submenu", self.adjust_wheel_circumference),
             ("Auto Light", "toggle", lambda: self.onoff_auto_light(True)),
             ("Auto Stop", None, None),
@@ -27,6 +28,9 @@ class SensorMenuWidget(MenuWidget):
             return
         self.change_page("ANT+ Sensors")
 
+    def ble_sensors_menu(self):
+        self.change_page("BLE Sensors", preprocess=True)
+
     def adjust_wheel_circumference(self):
         self.change_page("Wheel Size", preprocess=True)
 
@@ -37,6 +41,7 @@ class SensorMenuWidget(MenuWidget):
         if change:
             self.config.G_ANT["USE_AUTO_LIGHT"] = not self.config.G_ANT["USE_AUTO_LIGHT"] 
         self.buttons["Auto Light"].change_toggle(self.config.G_ANT["USE_AUTO_LIGHT"])
+
 
 class ANTMenuWidget(MenuWidget):
     def setup_menu(self):
@@ -132,9 +137,17 @@ class ANTListWidget(ListWidget):
     def on_back_menu(self):
         self.timer.stop()
         self.sensor_ant.searcher.stop_search()
-        # button update
-        index = self.config.gui.gui_config.G_GUI_INDEX[self.back_index_key]
-        self.parentWidget().widget(index).update_button_label()
+      	# button update
+        back_index_key = self.back_index_key
+        gui_index = self.config.gui.gui_config.G_GUI_INDEX
+        if back_index_key in gui_index:
+            index = gui_index[back_index_key]
+            self.parentWidget().widget(index).update_button_label()
+        else:
+            app_logger.warning(
+                f"on_back_menu skipped update: back_index_key {back_index_key} missing in G_GUI_INDEX"
+            )
+            app_logger.warning(f"{gui_index}")
 
     def preprocess_extra(self):
         self.ant_sensor_types.clear()
@@ -178,3 +191,51 @@ class ANTListItemWidget(ListItemWidget):
         # outer layout (custom)
         self.outer_layout.insertWidget(0, icon)
         self.enter_signal.connect(self.parentWidget().button_func)
+
+
+class BLEMenuWidget(MenuWidget):
+    def setup_menu(self):
+        button_conf = (
+            # Name(page_name), button_attribute, connected functions, layout
+            ("Zwift Click V2", "toggle", lambda: self.onoff_zwift_click_v2(True)),
+            ("Fake Trainer for Zwift", "toggle", lambda: self.onoff_fake_trainer(True)),
+        )
+        self.add_buttons(button_conf)
+        self.onoff_zwift_click_v2(False)
+
+        #if self.config.logger.sensor.sensor_ble.enabled():
+        #    self.buttons["Zwift Click V2"].disable()
+
+        if self.config.ble_uart is None:
+            self.buttons["Fake Trainer for Zwift"].disable()
+
+    def preprocess(self):
+        self.onoff_zwift_click_v2(False)
+        self.onoff_fake_trainer(False)
+
+    def onoff_zwift_click_v2(self, change=True):
+        if change:
+            self.config.G_ZWIFT_CLICK_V2["STATUS"] = not self.config.G_ZWIFT_CLICK_V2["STATUS"]
+            sensor_ble = self.config.logger.sensor.sensor_ble
+            if self.config.G_ZWIFT_CLICK_V2["STATUS"]:
+                if not sensor_ble.connect_zwift_click_v2():
+                    app_logger.warning("Zwift Click V2 toggle skipped: BLE not enabled")
+            else:
+                sensor_ble.disconnect_zwift_click_v2()
+        self.buttons["Zwift Click V2"].change_toggle(self.config.G_ZWIFT_CLICK_V2["STATUS"])
+    
+    def onoff_fake_trainer(self, change=True):
+        sensor_ble = self.config.logger.sensor.sensor_ble
+        if change:
+            sensor_ble.toggle_fake_trainer()
+
+        fake_trainer_status = sensor_ble.is_fake_trainer_running()
+        self.buttons["Fake Trainer for Zwift"].change_toggle(fake_trainer_status)
+
+        if change:
+            if fake_trainer_status:
+                self.buttons["Zwift Click V2"].disable()
+                self.buttons["Zwift Click V2"].change_toggle(False)
+            else:
+                self.buttons["Zwift Click V2"].enable()
+                self.buttons["Zwift Click V2"].change_toggle(True)

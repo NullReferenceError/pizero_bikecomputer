@@ -72,6 +72,7 @@ if [[ "$install_services" == "true" ]]; then
     prompt_and_store "Using TFT/XWindow to start pizero_bikecomputer.service?" install_services_use_x
 fi
 set -e
+TARGET_USER="${SUDO_USER:-${LOGNAME:-$USER}}"
 
 #############################################################
 # install packages
@@ -83,7 +84,10 @@ sudo apt upgrade -y
 
 # install essential packages
 echo "🔧 Installing core packages..."
-sudo apt install -y git python3-venv python3-yaml cython3 cmake python3-numpy sqlite3 libsqlite3-dev python3-pil python3-aiohttp python3-aiofiles python3-psutil
+# bookworm
+#sudo apt install -y git python3-venv python3-yaml cython3 cmake python3-numpy sqlite3 libsqlite3-dev python3-pil python3-aiohttp python3-aiofiles python3-psutil
+# trixie
+sudo apt install -y git cython3 cmake python3-setuptools python3-numpy sqlite3 libsqlite3-dev python3-pil python3-aiohttp python3-aiofiles python3-psutil
 echo "✅ Core packages installed."
 
 cd
@@ -121,13 +125,16 @@ if [[ "$install_pyqt6" == "true" ]]; then
     echo "✅ PyQt6 packages installed successfully."
     gui_option=""
 else
-    gui_option="--gui None"
+    gui_option=(--gui None)
 fi
 
 # Install ANT+ packages
 if [[ "$install_ant_plus" == "true" ]]; then
     echo "🔧 Installing ANT+ packages..."
-    sudo apt install -y python3-pip libusb-1.0-0 python3-usb
+    # bookworm
+    #sudo apt install -y python3-pip libusb-1.0-0 python3-usb
+    # trixie
+    sudo apt install -y python3-pip python3-usb
     # install as root to ensure there are no udev_rules permission issues from setuptools
     sudo pip3 install git+https://github.com/hishizuka/openant.git --break-system-packages
     echo "✅ ANT+ packages installed successfully."
@@ -136,8 +143,11 @@ fi
 # Install GPS packages
 if [[ "$install_gps" == "true" ]]; then
     echo "🔧 Installing GPS packages..."
-    sudo apt install -y gpsd
-    pip install gps3 timezonefinder
+    # bookworm
+    #sudo apt install -y gpsd
+    # trixie
+    sudo apt install -y gpsd python3-gps libffi-dev
+    pip install timezonefinder
     if [[ "$has_raspi_config" == "true" ]]; then
         sudo raspi-config nonint do_serial_cons 1
         sudo raspi-config nonint do_serial_hw 0
@@ -151,13 +161,20 @@ fi
 # Install Bluetooth packages
 if [[ "$install_bluetooth" == "true" ]]; then
     echo "🔧 Installing Bluetooth packages..."
-    sudo apt install -y bluez-obexd
-    pip install garminconnect stravacookies bluez-peripheral==0.2.0a3 tb-mqtt-client mmh3 timezonefinder
+    # for trixie
+    sudo usermod -aG bluetooth "$TARGET_USER"
+    sudo rfkill unblock bluetooth
+    # install packages
+    sudo apt install -y bluez-obexd libffi-dev
+    # for raspberry pi zero (building with pip is extremely heavy.)
+    sudo apt install -y python3-pydantic python3-orjson
+    pip install garminconnect stravacookies bluez-peripheral==0.2.0a4 tb-mqtt-client mmh3 timezonefinder
     echo "✅ Bluetooth packages installed successfully."
 fi
 
-# Enable SPI
+# Enable I2C
 if [[ "$enable_i2c" == "true" ]]; then
+    #sudo apt install -y python3-smbus2
     pip install magnetic-field-calculator
     # Enable I2C on Raspberry Pi
     echo "🔧 Enabling i2c on Raspberry Pi..."
@@ -165,8 +182,8 @@ if [[ "$enable_i2c" == "true" ]]; then
         sudo raspi-config nonint do_i2c 0
     fi
     # add pi to i2c if not already a member
-    #if ! groups $USER | grep -qw i2c; then
-    #  sudo adduser $USER i2c
+    #if ! groups "$TARGET_USER" | grep -qw i2c; then
+    #  sudo adduser "$TARGET_USER" i2c
     #fi
     echo "✅ I2C enabled successfully"
 fi
@@ -179,10 +196,14 @@ if [[ "$enable_spi" == "true" ]]; then
         sudo raspi-config nonint do_spi 0
     fi
     # add pi to i2c if not already a member
-    #if ! groups $USER | grep -qw spi; then
-    #  sudo adduser $USER spi
+    #if ! groups "$TARGET_USER" | grep -qw spi; then
+    #  sudo adduser "$TARGET_USER" spi
     #fi
     
+    # workaround for trixie
+    sudo apt install -y pigpio python3-pigpio
+    # or manually install
+
     sudo systemctl enable pigpiod
     echo "ℹ️ pigpio enabled  successfully."
 
@@ -206,6 +227,17 @@ if [ -f "$BOOT_CONFIG_FILE" ]; then
         echo "ℹ️ Audio is already disabled or line is commented out."
     fi
     echo "✅ Audio disabled successfully in $BOOT_CONFIG_FILE (or already disabled)"
+fi
+
+# Disable LED
+if [ -f "$BOOT_CONFIG_FILE" ]; then
+    # Append LED trigger settings if missing to keep LEDs off during normal operation
+    if ! grep -q "^dtparam=pwr_led_trigger=none" "$BOOT_CONFIG_FILE"; then
+        echo "dtparam=pwr_led_trigger=none" | sudo tee -a "$BOOT_CONFIG_FILE" >/dev/null
+    fi
+    if ! grep -q "^dtparam=act_led_trigger=none" "$BOOT_CONFIG_FILE"; then
+        echo "dtparam=act_led_trigger=none" | sudo tee -a "$BOOT_CONFIG_FILE" >/dev/null
+    fi
 fi
 
 # Disable camera on Raspberry Pi
@@ -238,19 +270,28 @@ trap cleanup EXIT
 
 # Start the app and tee its output to both screen and PIPE
 export QT_QPA_PLATFORM=offscreen
-stdbuf -oL python3 pizero_bikecomputer.py --init "$gui_option" 2>&1 | tee "$OUT_PIPE" &
+stdbuf -oL python3 pizero_bikecomputer.py --init "${gui_option[@]}" 2>&1 | tee "$OUT_PIPE" &
 APP_PID=$!
 
 # Monitor the output for readiness
 ready=0
 while IFS= read -r line; do
-    if [[ $ready -eq 0 && "$line" == *"quit"* ]]; then
-        echo "ℹ️ 'quit' detected. Waiting 10s..."
-        ready=1
+    if [ "$ready" -eq 0 ]; then
+        case "$line" in
+            quit)
+                echo "ℹ️ 'quit' detected. Waiting 10s..."
+                ready=1
+            ;;
+        esac
     fi
-    if [[ $ready -eq 1 && "$line" == *"quit done"* ]]; then
-        sleep 10
-        break
+
+    if [ "$ready" -eq 1 ]; then
+        case "$line" in
+            *"quit done"*)
+                sleep 10
+                break
+            ;;
+        esac
     fi
 done < "$OUT_PIPE"
 
@@ -279,10 +320,14 @@ if [[ "$install_services" == "true" ]]; then
     i_service_file="scripts/install/etc/systemd/system/pizero_bikecomputer.service"
     o_service_file="/etc/systemd/system/pizero_bikecomputer.service"
 
+    log_file="$current_dir/log/debug.log"
+    i_post_exec_file="scripts/install/usr/local/bin/rotate_debug_log.sh"
+    o_post_exec_file="/usr/local/bin/rotate_debug_log.sh"
+
     # check if venv is set, in that case default to using venv to run the script
     #read -p "Use current virtualenv? [y/n] (y): " use_venv
     if [[ -n "$VIRTUAL_ENV" ]]; then
-        script="$VIRTUAL_ENV/bin/python $script --output_log"
+        script="$VIRTUAL_ENV/bin/python $script"
     else
     echo "No virtualenv used/activated. Default python will be used"
     fi
@@ -290,7 +335,7 @@ if [[ "$install_services" == "true" ]]; then
     if [[ "$install_services_use_x" == "true" ]]; then
         # add fullscreen option
         script="$script -f"
-        envs="Environment=\"QT_QPA_PLATFORM=xcb\"\\nEnvironment=\"DISPLAY=:0\"\\nEnvironment=\"XAUTHORITY=/home/$USER/.Xauthority\"\\n"
+        envs="Environment=\"QT_QPA_PLATFORM=xcb\"\\nEnvironment=\"DISPLAY=:0\"\\nEnvironment=\"XAUTHORITY=/home/$TARGET_USER/.Xauthority\"\\n"
         after="After=display-manager.service\\n"
     else
         envs="Environment=\"QT_QPA_PLATFORM=offscreen\"\\n"
@@ -300,9 +345,12 @@ if [[ "$install_services" == "true" ]]; then
     if [ -f "$i_service_file" ]; then
         content=$(<"$i_service_file")
         content="${content/WorkingDirectory=/WorkingDirectory=$current_dir}"
+        content="${content/ExecStartPre=/ExecStartPre=$o_post_exec_file}"
         content="${content/ExecStart=/ExecStart=$script}"
-        content="${content/User=/User=$USER}"
-        content="${content/Group=/Group=$USER}"
+        content="${content/ExecStopPost=/ExecStopPost=$o_post_exec_file}"
+        content="${content/User=/User=$TARGET_USER}"
+        content="${content/Group=/Group=$TARGET_USER}"
+        content="${content/StandardOutput=/StandardOutput=append:$log_file}"
 
         # inject environment variables
         content=$(echo "$content" | sed "/\[Install\]/i $envs")
@@ -313,8 +361,16 @@ if [[ "$install_services" == "true" ]]; then
         echo "$content" | sudo tee $o_service_file > /dev/null
         sudo systemctl enable pizero_bikecomputer
     fi
+
+    if [ -f "$i_post_exec_file" ]; then
+        content=$(<"$i_post_exec_file")
+        content="${content/LOG=/LOG=$log_file}"
+
+        echo "$content" | sudo tee $o_post_exec_file > /dev/null
+        chown $TARGET_USER:$TARGET_USER
+    fi
+
 fi
 
 echo "✅ pizero_bikecomputer initial setup completed successfully! Please reboot."  # or "Now rebooting"
 #sudo reboot
-

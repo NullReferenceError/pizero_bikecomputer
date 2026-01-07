@@ -18,15 +18,16 @@ app_logger.info("detected sensor modules:")
 from modules.utils.timer import Timer, log_timers
 from .sensor.gps import SensorGPS
 from .sensor.sensor_ant import SensorANT
+from .sensor.sensor_ble import SensorBLE
 from .sensor.sensor_gpio import SensorGPIO
 from .sensor.sensor_i2c import SensorI2C
-# Todo: BLE
 
 
 class SensorCore:
     config = None
     sensor_gps = None
     sensor_ant = None
+    sensor_ble = None
     sensor_i2c = None
     sensor_gpio = None
     values = {}
@@ -125,6 +126,7 @@ class SensorCore:
 
         timers = [
             Timer(auto_start=False, text="  ANT+ : {0:.3f} sec"),
+            Timer(auto_start=False, text="  BLE  : {0:.3f} sec"),
             Timer(auto_start=False, text="  I2C  : {0:.3f} sec"),
         ]
 
@@ -132,6 +134,9 @@ class SensorCore:
             self.sensor_ant = SensorANT(config, self.values["ANT+"])
 
         with timers[1]:
+            self.sensor_ble = SensorBLE(config, self.values["BLE"])
+
+        with timers[2]:
             self.sensor_i2c = SensorI2C(config, self.values["I2C"])
 
         self.sensor_gpio = SensorGPIO(config, None)
@@ -143,6 +148,7 @@ class SensorCore:
     def start_coroutine(self):
         asyncio.create_task(self.integrate())
         self.sensor_ant.start_coroutine()
+        self.sensor_ble.start_coroutine()
         self.sensor_gps.start_coroutine()
         self.sensor_i2c.start_coroutine()
 
@@ -150,6 +156,7 @@ class SensorCore:
         self.status_quit = True
         self.sensor_i2c.quit()
         self.sensor_ant.quit()
+        self.sensor_ble.quit()
         await self.sensor_gps.quit()
         self.sensor_gpio.quit()
 
@@ -398,11 +405,15 @@ class SensorCore:
 
             # grade (distance base)
             if dst_diff["USE"] > 0:
+                diff_sources = {
+                    "alt_diff": alt_diff,
+                    "dst_diff": dst_diff,
+                }
                 for key in ["alt_diff", "dst_diff"]:
                     self.values["integrated"][key][0:-1] = self.values[
                         "integrated"
                     ][key][1:]
-                    self.values["integrated"][key][-1] = eval(key + "['USE']")
+                    self.values["integrated"][key][-1] = diff_sources[key]["USE"]
                     # diff_sum[key] = np.mean(self.values['integrated'][key][-self.grade_window_size:])
                     diff_sum[key] = np.nansum(
                         self.values["integrated"][key][-self.grade_window_size :]
@@ -433,11 +444,15 @@ class SensorCore:
             # grade (speed base)
             if self.config.G_ANT["USE"]["SPD"]:
                 dst_diff_spd["ANT+"] = spd * self.actual_loop_interval
+                diff_sources_spd = {
+                    "alt_diff_spd": alt_diff_spd,
+                    "dst_diff_spd": dst_diff_spd,
+                }
                 for key in ["alt_diff_spd", "dst_diff_spd"]:
                     self.values["integrated"][key][0:-1] = self.values[
                         "integrated"
                     ][key][1:]
-                    self.values["integrated"][key][-1] = eval(key + "['ANT+']")
+                    self.values["integrated"][key][-1] = diff_sources_spd[key]["ANT+"]
                     diff_sum[key] = np.mean(
                         self.values["integrated"][key][-self.grade_window_size :]
                     )

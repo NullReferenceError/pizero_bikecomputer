@@ -1,7 +1,6 @@
 import os
 import signal
 import asyncio
-from datetime import datetime, timezone
 
 import numpy as np
 
@@ -18,6 +17,7 @@ QT_ALIGN_BOTTOM = _qt_import.QT_ALIGN_BOTTOM
 QT_ALIGN_LEFT = _qt_import.QT_ALIGN_LEFT
 QT_FORMAT_MONO = _qt_import.QT_FORMAT_MONO
 QT_FORMAT_RGB888 = _qt_import.QT_FORMAT_RGB888
+QT_COLOR_BLACK = _qt_import.QT_COLOR_BLACK
 QtCore = _qt_import.QtCore
 QtGui = _qt_import.QtGui
 qasync = _qt_import.qasync
@@ -34,8 +34,13 @@ class GUI_Qt_Base(QtCore.QObject):
     image_format = None
     screen_shape = None
     screen_image = None
-    remove_bytes = 0
     bufsize = 0
+    bytes_per_line = 0
+    _view_strides = None
+    _needs_ptr_resize = False
+    display_active = False
+    _render_widget = None
+    _display_has_color = True
 
     horizontal = True
 
@@ -43,10 +48,21 @@ class GUI_Qt_Base(QtCore.QObject):
     def logger(self):
         return self.config.logger
 
+    @property
+    def sensor(self):
+        return self.logger.sensor
+
+    @property
+    def course(self):
+        return self.logger.course
+
     # need override
     @property
     def grab_func(self):
         return None
+
+    def set_render_widget(self, widget):
+        self._render_widget = widget
 
     def __init__(self, config):
         super().__init__()
@@ -57,15 +73,17 @@ class GUI_Qt_Base(QtCore.QObject):
 
         self.gui_config = GUI_Config(config.G_LAYOUT_FILE)
 
+        self.init_window()
+
+    async def delay_init(self):
+        loop = asyncio.get_running_loop()
         try:
-            signal.signal(signal.SIGTERM, self.quit_by_ctrl_c)
-            signal.signal(signal.SIGINT, self.quit_by_ctrl_c)
-            signal.signal(signal.SIGQUIT, self.quit_by_ctrl_c)
-            signal.signal(signal.SIGHUP, self.quit_by_ctrl_c)
+            loop.add_signal_handler(signal.SIGTERM, self.app.quit)
+            loop.add_signal_handler(signal.SIGINT, self.app.quit)
+            loop.add_signal_handler(signal.SIGQUIT, self.app.quit)
+            loop.add_signal_handler(signal.SIGHUP, self.app.quit)
         except:
             pass
-
-        self.init_window()
 
     async def msg_worker(self):
         while True:
@@ -81,44 +99,108 @@ class GUI_Qt_Base(QtCore.QObject):
             self.msg_event.clear()
             await asyncio.sleep(0.1)
 
-    @qasync.asyncSlot(object, object)
-    async def quit_by_ctrl_c(self, signal, frame):
-        await self.quit()
-    
     async def quit(self):
         self.msg_event.set()
         await self.msg_queue.put(None)
         await self.config.quit()
 
-        # with loop.close, so execute at the end
-        # not need PyQt 6.7
-        #self.app.quit()
-    
     def exec(self):
-        with self.config.loop:
-            self.config.loop.run_forever()
-            # loop is stopped
-        # loop is closed
+        asyncio.run(self.config.start_coroutine(), loop_factory=qasync.QEventLoop)
+
+    def _grab_in_target_format(self):
+        """Grab current frame and convert only if format differs."""
+        image = None
+        if self._render_widget is not None and self.image_format is not None:
+            image = self._render_widget_to_image()
+        if image is None:
+            image = self.grab_func
+        if image is None:
+            return None
+        if self.image_format is None:
+            return image
+        if image.format() != self.image_format:
+            return image.convertToFormat(self.image_format)
+        return image
+
+    def _render_widget_to_image(self):
+        widget = self._render_widget
+        if widget is None:
+            return None
+        width = widget.width()
+        height = widget.height()
+        if width <= 0 or height <= 0:
+            return None
+        resized = self._ensure_screen_image_capacity(width, height)
+        if self.screen_image is None:
+            return None
+        # clear previous frame to avoid blending old content when reusing QImage buffer
+        self.screen_image.fill(QT_COLOR_BLACK)
+        painter = QtGui.QPainter()
+        if not painter.begin(self.screen_image):
+            painter.end()
+            return None
+        widget.render(painter, QtCore.QPoint())
+        painter.end()
+        if resized:
+            self._update_buffer_geometry(self.screen_image)
+        return self.screen_image
+
+    def _ensure_screen_image_capacity(self, width, height):
+        if self.image_format is None:
+            return False
+        if width <= 0 or height <= 0:
+            return False
+        needs_new = (
+            self.screen_image is None
+            or self.screen_image.width() != width
+            or self.screen_image.height() != height
+            or self.screen_image.format() != self.image_format
+        )
+        if needs_new:
+            self.screen_image = QtGui.QImage(width, height, self.image_format)
+        return needs_new
+
+    def _update_buffer_geometry(self, image):
+        self.bufsize = image.sizeInBytes()
+        self.bytes_per_line = image.bytesPerLine()
+        if self._display_has_color:
+            self.screen_shape = (image.height(), image.width(), 3)
+            self._view_strides = (
+                self.bytes_per_line,
+                3,
+                1,
+            )
+        else:
+            self.screen_shape = (image.height(), int(image.width() / 8), 1)
+            self._view_strides = (
+                self.bytes_per_line,
+                1,
+                1,
+            )
 
     def init_buffer(self, display):
-        if display.send:
-            has_color = display.has_color
+        self.display_active = False
+        if not display.send:
+            return
 
-            # set image format
-            if has_color:
-                self.image_format = QT_FORMAT_RGB888
-            else:
-                self.image_format = QT_FORMAT_MONO
+        has_color = display.has_color
+        self._display_has_color = has_color
 
-            p = self.grab_func.convertToFormat(self.image_format)
+        # set image format
+        if has_color:
+            self.image_format = QT_FORMAT_RGB888
+        else:
+            self.image_format = QT_FORMAT_MONO
 
-            self.bufsize = p.sizeInBytes()  # PyQt 5.15 or later (Bullseye)
+        p = self._grab_in_target_format()
+        if p is None:
+            return
 
-            if has_color:
-                self.screen_shape = (p.height(), p.width(), 3)
-            else:
-                self.screen_shape = (p.height(), int(p.width() / 8), 1)
-                self.remove_bytes = p.bytesPerLine() - int(p.width() / 8)
+        self._update_buffer_geometry(p)
+
+        self._needs_ptr_resize = not USE_PYSIDE6
+
+        self.display_active = True
 
     def add_font(self):
         # Additional font from setting.conf
@@ -139,9 +221,8 @@ class GUI_Qt_Base(QtCore.QObject):
             return
 
         # self.config.check_time("draw_display start")
-        p = self.grab_func.convertToFormat(self.image_format)
-
-        if self.screen_image is not None and p == self.screen_image:
+        p = self._grab_in_target_format()
+        if p is None:
             return
 
         # self.config.check_time("grab")
@@ -151,16 +232,15 @@ class GUI_Qt_Base(QtCore.QObject):
             return
 
         self.screen_image = p
-        if not USE_PYSIDE6:  # PyQt only
+        if self._needs_ptr_resize:
             ptr.setsize(self.bufsize)
 
-        if self.remove_bytes > 0:
-            buf = np.frombuffer(ptr, dtype=np.uint8).reshape(
-                (p.height(), self.remove_bytes + int(p.width() / 8))
-            )
-            buf = buf[:, : -self.remove_bytes]
-        else:
-            buf = np.frombuffer(ptr, dtype=np.uint8).reshape(self.screen_shape)
+        src = np.frombuffer(ptr, dtype=np.uint8, count=self.bufsize)
+        buf = np.lib.stride_tricks.as_strided(
+            src,
+            shape=self.screen_shape,
+            strides=self._view_strides,
+        )
 
         self.config.display.update(buf, direct_update)
         # self.config.check_time("draw_display end")

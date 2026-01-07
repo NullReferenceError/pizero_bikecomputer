@@ -48,6 +48,12 @@ class Setting:
                 self.config.G_BT_PAN_DEVICE = c["BT_PAN_DEVICE"]
             if "AUTO_BT_TETHERING" in c:
                 self.config.G_AUTO_BT_TETHERING = c.getboolean("AUTO_BT_TETHERING")
+            if "USE_ZWIFT_CLICK_V2" in c:
+                self.config.G_ZWIFT_CLICK_V2["STATUS"] = c.getboolean("USE_ZWIFT_CLICK_V2")
+            if "ZWIFT_CLICK_V2_ADDRESS" in c:
+                address = c["ZWIFT_CLICK_V2_ADDRESS"].strip()
+                if address:
+                    self.config.G_ZWIFT_CLICK_V2["ADDRESS"] = address
             if "GADGETBRIDGE_STATUS" in c:
                 self.config.G_GADGETBRIDGE["STATUS"] = c.getboolean("GADGETBRIDGE_STATUS")
             if "GADGETBRIDGE_USE_GPS" in c:
@@ -155,8 +161,6 @@ class Setting:
             c = self.config_parser["DISPLAY_PARAM"]
             if "SPI_CLOCK" in c:
                 self.config.G_DISPLAY_PARAM["SPI_CLOCK"] = int(c["SPI_CLOCK"])
-            if "PCB_BACKLIGHT" in c:
-                self.config.G_PCB_BACKLIGHT = c["PCB_BACKLIGHT"].upper()
             if "USE_BACKLIGHT" in c:
                 self.config.G_DISPLAY_PARAM["USE_BACKLIGHT"] = c.getboolean("USE_BACKLIGHT")
             if "AUTO_BACKLIGHT_CUTOFF" in c:
@@ -232,6 +236,8 @@ class Setting:
         c = self.config_parser["BT"]
         c["BT_PAN_DEVICE"] = str(self.config.G_BT_PAN_DEVICE)
         c["AUTO_BT_TETHERING"] = str(self.config.G_AUTO_BT_TETHERING)
+        c["USE_ZWIFT_CLICK_V2"] = str(self.config.G_ZWIFT_CLICK_V2["STATUS"])
+        c["ZWIFT_CLICK_V2_ADDRESS"] = str(self.config.G_ZWIFT_CLICK_V2["ADDRESS"])
         c["GADGETBRIDGE_STATUS"] = str(self.config.G_GADGETBRIDGE["STATUS"])
         c["GADGETBRIDGE_USE_GPS"] = str(self.config.G_GADGETBRIDGE["USE_GPS"])
 
@@ -278,7 +284,6 @@ class Setting:
         self.config_parser["DISPLAY_PARAM"] = {}
         c = self.config_parser["DISPLAY_PARAM"]
         c["SPI_CLOCK"] = str(int(self.config.G_DISPLAY_PARAM["SPI_CLOCK"]))
-        c["PCB_BACKLIGHT"] = str(self.config.G_PCB_BACKLIGHT).lower()
         c["USE_BACKLIGHT"] = str(self.config.G_DISPLAY_PARAM["USE_BACKLIGHT"])
         c["AUTO_BACKLIGHT_CUTOFF"] = str(int(self.config.G_AUTO_BACKLIGHT_CUTOFF))
 

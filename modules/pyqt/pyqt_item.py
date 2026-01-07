@@ -71,31 +71,31 @@ class Item(QtWidgets.QVBoxLayout):
         self.value = ItemValue(right_flag, bottom_flag)
         self.itemformat = self.config.gui.gui_config.G_ITEM_DEF[name][0][0]
         self.unittext = self.config.gui.gui_config.G_ITEM_DEF[name][0][1]
+        self._unit_suffix = ""
 
         self.addWidget(self.label)
         self.addWidget(self.value)
         
         self.update_font_size(font_size)
+        self._last_value_text = None
         self.update_value(np.nan)
 
     def update_value(self, value):
-        self.value.setText(
-            self.config.gui.gui_config.format_text(
-                self.name,
-                value,
-                self.config.G_STOPWATCH_STATUS,
-                self.itemformat,
-            )
+        base_text = self.config.gui.gui_config.format_text(
+            self.name,
+            value,
+            self.config.G_STOPWATCH_STATUS,
+            self.itemformat,
         )
-        
-        if self.unittext != "":
-            if self.font_size_unit_set:
-                self.value.setText(
-                    self.value.text()
-                    + f"<span style='font-size: {self.font_size_unit}px;'> {self.unittext}</span>"
-                    )
-            else:
-                self.value.setText(self.value.text() + f"<font size=small> {self.unittext}</font>")
+
+        new_text = base_text + self._unit_suffix
+
+        # Skip updates when text is unchanged to avoid needless repaints
+        if new_text == self._last_value_text:
+            return
+
+        self._last_value_text = new_text
+        self.value.setText(new_text)
 
     def update_font_size(self, font_size):
         if not self.font_size_unit_set and self.font_size_unit != 0:
@@ -111,3 +111,14 @@ class Item(QtWidgets.QVBoxLayout):
             # q.setStyleStrategy(QtGui.QFont.NoSubpixelAntialias) # avoid subpixel antialiasing on the fonts if possible
             # q.setStyleStrategy(QtGui.QFont.NoAntialias) # don't antialias the fonts
             text.setFont(q)
+
+        # Refresh cached unit suffix for the new font size and force next repaint
+        self._unit_suffix = self._build_unit_suffix()
+        self._last_value_text = None
+
+    def _build_unit_suffix(self):
+        if self.unittext == "":
+            return ""
+        if self.font_size_unit_set:
+            return f"<span style='font-size: {self.font_size_unit}px;'> {self.unittext}</span>"
+        return f"<font size=small> {self.unittext}</font>"

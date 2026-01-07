@@ -5,6 +5,7 @@ from datetime import datetime
 import asyncio
 
 from modules.app_logger import app_logger
+from modules.utils.network import detect_network
 import modules._qt_ver as _qt_ver
 _qt_ver.QtMode = "QtWidgets"
 
@@ -66,6 +67,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(title)
         self.setMinimumSize(*size)
         self.set_color()
+        self._paint_delegate = self._default_paint_delegate
 
     # TODO, daylight does not seem to be used at all,
     #  Could/Should be replaced by setting stylesheet on init
@@ -78,6 +80,15 @@ class MainWindow(QtWidgets.QMainWindow):
     def set_gui(self, gui):
         self.gui = gui
 
+    def _default_paint_delegate(self, event):
+        pass
+
+    def set_paint_delegate(self, delegate):
+        self._paint_delegate = delegate
+
+    def clear_paint_delegate(self):
+        self._paint_delegate = self._default_paint_delegate
+
     # override from QtWidget
     @qasync.asyncClose
     async def closeEvent(self, event):
@@ -85,7 +96,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # override from QtWidget
     def paintEvent(self, event):
-        self.gui.draw_display()
+        self._paint_delegate(event)
 
 
 class GUI_PyQt(GUI_Qt_Base):
@@ -110,6 +121,7 @@ class GUI_PyQt(GUI_Qt_Base):
     signal_menu_back_button = Signal()
     signal_get_screenshot = Signal()
     signal_multiscan = Signal()
+    signal_fake_trainer = Signal()
     signal_start_and_stop_manual = Signal()
     signal_count_laps = Signal()
     signal_reset_count = Signal()
@@ -132,10 +144,7 @@ class GUI_PyQt(GUI_Qt_Base):
         super().__init__(config)
 
     def init_window(self):
-        self.app = QtWidgets.QApplication(sys.argv)
-        self.config.loop = qasync.QEventLoop(self.app)
-        self.config.loop.set_debug(True)
-        self.config.init_loop(call_from_gui=True)
+        self.app = qasync.QApplication(sys.argv)
 
         self.main_window = MainWindow(
             self.config.G_PRODUCT, self.config.display.resolution
@@ -146,6 +155,7 @@ class GUI_PyQt(GUI_Qt_Base):
         self.stack_widget = QtWidgets.QStackedWidget(self.main_window)
         self.main_window.setCentralWidget(self.stack_widget)
         self.stack_widget.setContentsMargins(0, 0, 0, 0)
+        self.set_render_widget(self.stack_widget)
 
         # stack_widget elements (splash)
         splash_widget = SplashScreen(self.stack_widget)
@@ -161,6 +171,8 @@ class GUI_PyQt(GUI_Qt_Base):
 
         # for draw_display
         self.init_buffer(self.config.display)
+        if self.display_active:
+            self.main_window.set_paint_delegate(lambda event: self.draw_display())
 
         self.exec()
 
@@ -177,6 +189,8 @@ class GUI_PyQt(GUI_Qt_Base):
             await asyncio.sleep(0.01)  # need for changing QLabel in the event loop
 
     def delay_init(self):
+        asyncio.create_task(super().delay_init())
+
         # ensure visually alignment for log
         timers = [
             Timer(auto_start=False, text="  misc  : {0:.3f} sec"),
@@ -196,6 +210,7 @@ class GUI_PyQt(GUI_Qt_Base):
             # other
             self.signal_get_screenshot.connect(self.screenshot)
             self.signal_multiscan.connect(self.multiscan_internal)
+            self.signal_fake_trainer.connect(self.fake_trainer_internal)
 
             self.signal_start_and_stop_manual.connect(
                 self.start_and_stop_manual_internal
@@ -240,6 +255,7 @@ class GUI_PyQt(GUI_Qt_Base):
                 SensorMenuWidget,
                 ANTMenuWidget,
                 ANTListWidget,
+                BLEMenuWidget,
             )
             from modules.pyqt.menu.pyqt_course_menu_widget import (
                 CoursesMenuWidget,
@@ -289,6 +305,7 @@ class GUI_PyQt(GUI_Qt_Base):
 
             # reverse order (make children widget first, then make parent widget)
             menus = [
+                ("BLE Sensors", BLEMenuWidget),
                 ("ANT+ Detail", ANTListWidget),
                 ("ANT+ Sensors", ANTMenuWidget),
                 ("Wheel Size", AdjustWheelCircumferenceWidget),
@@ -331,6 +348,9 @@ class GUI_PyQt(GUI_Qt_Base):
 
             self.stack_widget.setCurrentIndex(1)
 
+            # hide splash to avoid accidental render when stacking all widgets
+            self.stack_widget.widget(0).hide()
+
         with timers[3]:
             # main layout
             main_layout = QtWidgets.QVBoxLayout(main_widget)
@@ -356,7 +376,7 @@ class GUI_PyQt(GUI_Qt_Base):
                     if (
                         k == "ALTITUDE_GRAPH"
                         and "i2c_baro_temp"
-                        in self.config.logger.sensor.sensor_i2c.sensor
+                        in self.sensor.sensor_i2c.sensor
                     ):
                         self.altitude_graph_widget = (
                             pyqt_value_graph.AltitudeGraphWidget(
@@ -366,7 +386,7 @@ class GUI_PyQt(GUI_Qt_Base):
                         self.main_page.addWidget(self.altitude_graph_widget)
                     elif (
                         k == "ACC_GRAPH"
-                        and self.config.logger.sensor.sensor_i2c.motion_sensor["ACC"]
+                        and self.sensor.sensor_i2c.motion_sensor["ACC"]
                     ):
                         self.acc_graph_widget = (
                             pyqt_value_graph.AccelerationGraphWidget(
@@ -453,6 +473,7 @@ class GUI_PyQt(GUI_Qt_Base):
             res
             and self.config.G_AUTO_UPLOAD
             and any(self.config.G_AUTO_UPLOAD_SERVICE.values())
+            and self.config.network.check_network_with_bt_tethering()
         ):
             self.show_dialog(self.upload_activity, "Upload Activity?")
 
@@ -466,7 +487,8 @@ class GUI_PyQt(GUI_Qt_Base):
         }
 
         # BT tethering on
-        if not await self.config.network.open_bt_tethering(f_name):
+        bt_open_result = await self.config.network.open_bt_tethering(f_name)
+        if not bt_open_result.is_success():
             self.show_dialog_ok_only(None, "No network.")
             return
 
@@ -589,10 +611,9 @@ class GUI_PyQt(GUI_Qt_Base):
 
     def map_method(self, mode):
         w = self.main_page.widget(self.main_page.currentIndex())
-        if w == self.map_widget:
-            eval("w.signal_" + mode + ".emit()")
-        elif w == self.course_profile_graph_widget:
-            eval("w.signal_" + mode + ".emit()")
+        signal = getattr(w, f"signal_{mode}", None)
+        if signal and hasattr(signal, "emit"):
+            signal.emit()
 
     def reset_course(self):
         self.map_widget.reset_course()
@@ -616,15 +637,15 @@ class GUI_PyQt(GUI_Qt_Base):
                 (
                     w == self.course_profile_graph_widget
                     and (
-                        not self.config.logger.course.is_set
-                        or not self.config.logger.course.has_altitude
+                        not self.course.is_set
+                        or not self.course.has_altitude
                         or not self.config.G_COURSE_INDEXING
                     )
                 )
                 or (
                     w == self.cuesheet_widget
                     and (                
-                            not self.config.logger.course.course_points.is_set
+                            not self.course.course_points.is_set
                             or not self.config.G_COURSE_INDEXING
                             or not self.config.G_CUESHEET_DISPLAY_NUM
                     ) 
@@ -654,6 +675,12 @@ class GUI_PyQt(GUI_Qt_Base):
             self.on_change_main_page(self.multiscan_back_index)
             self.main_page.setCurrentIndex(self.multiscan_back_index)
 
+    def toggle_fake_trainer(self):
+        self.signal_fake_trainer.emit()
+
+    def fake_trainer_internal(self):
+        self.sensor.sensor_ble.toggle_fake_trainer()
+
     def get_screenshot(self):
         self.signal_get_screenshot.emit()
 
@@ -682,7 +709,7 @@ class GUI_PyQt(GUI_Qt_Base):
         self.show_message(name, body, limit)
 
     def turn_on_off_light_internal(self):
-        self.config.logger.sensor.sensor_ant.set_light_mode("ON_OFF_FLASH_LOW")
+        self.sensor.sensor_ant.set_light_mode("ON_OFF_FLASH_LOW")
 
     def change_menu_page(self, page, focus_reset=True):
         self.stack_widget.setCurrentIndex(page)
@@ -698,7 +725,15 @@ class GUI_PyQt(GUI_Qt_Base):
                 focus_widget.clearFocus()
 
     def change_menu_back(self):
-        self.stack_widget.currentWidget().back()
+        current_widget = self.stack_widget.currentWidget()
+        back_method = getattr(current_widget, "back", None)
+        if callable(back_method):
+            back_method()
+        else:
+            app_logger.warning(
+                f"change_menu_back skipped: current widget {type(current_widget).__name__} has no back() method"
+                #"change_menu_back skipped: current widget QWidget                         has no back() method"
+            )
 
     def goto_menu(self):
         self.change_menu_page(self.gui_config.G_GUI_INDEX["Menu"])

@@ -63,11 +63,13 @@ Interface board alternatives:
 
 - <img width="320" alt="4.4inch-01" src="https://github.com/user-attachments/assets/d31f1cd3-5472-47b1-8995-1efe8fb5ef97" /> <img width="320" alt="4.4inch-02" src="https://github.com/user-attachments/assets/87afa6c3-ba28-4dbc-970b-e3c7c9a55806" /> <img width="320" alt="4inch-03" src="https://github.com/user-attachments/assets/3b9528d5-9e02-437a-a13f-2607aac2f90d" />
 
-### Azumo [14793-06_A1](https://www.azumotech.com/products/3-4-14793-01-64-color-display-mip/) (WIP)
+### 3.4 inch 64 colors MIP reflective display.
 
-3.4 inch 64 colors MIP reflective display.
+- Azumo [14793-06_A3](https://www.digikey.jp/ja/products/detail/azumo/14793-06-A3/26682148) (not available for individual orders)
+  - <img width="320" alt="3.4inch-01" src="https://github.com/user-attachments/assets/43fa3611-0155-4abf-baa6-040cf3165ba0" /> <img width="320" alt="3.4inch-02" src="https://github.com/user-attachments/assets/f248ded7-ede3-4ccb-b39d-e62e6ea914c3" />
 
-- <img width="320" alt="3.4inch-01" src="https://github.com/user-attachments/assets/43fa3611-0155-4abf-baa6-040cf3165ba0" /> <img width="320" alt="3.4inch-02" src="https://github.com/user-attachments/assets/f248ded7-ede3-4ccb-b39d-e62e6ea914c3" />
+- AUO [U340QBN01.0](https://www.alibaba.com/product-detail/3-4-Inch-TFT-LCD-Display_1601438380650.html)
+  - <img width="320" alt="3.4inch-01" src="https://pbs.twimg.com/media/GwL_jrIXEAAZl7b?format=jpg" /> <img width="320" alt="3.4inch-02" src="https://pbs.twimg.com/media/Gw-bSmlWoAAOXvG?format=jpg" />
 
 ### [Adafruit SHARP Memory Display Breakout (LS027B7DH01)](https://www.adafruit.com/product/4694)
 
@@ -236,7 +238,7 @@ get battery percent, etc.
 ## SD card
 - youw own (over 8GB)
 - [SanDisk MAX ENDURANCE microSD™ Card](https://www.westerndigital.com/products/memory-cards/sandisk-max-endurance-uhs-i-microsd#SDSQQVR-032G-GN6IA) is recommended if you use several years.
-- [SanDisk® High Endurance microSD™ Card](https://shop.westerndigital.com/products/memory-cards/sandisk-high-endurance-uhs-i-microsd#SDSQQNR-032G-AN6IA) is not compatible with  Raspberry Pi OS Bullseye. See [post1](https://forums.raspberrypi.com/viewtopic.php?p=2021511) and [post2](https://forums.raspberrypi.com/viewtopic.php?p=2006250)
+- [SanDisk® High Endurance microSD™ Card](https://shop.westerndigital.com/products/memory-cards/sandisk-high-endurance-uhs-i-microsd#SDSQQNR-032G-AN6IA) is not compatible with Raspberry Pi OS Bullseye. See [post1](https://forums.raspberrypi.com/viewtopic.php?p=2021511) and [post2](https://forums.raspberrypi.com/viewtopic.php?p=2006250)
 
 ## Case
 

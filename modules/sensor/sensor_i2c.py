@@ -1,6 +1,7 @@
 from datetime import datetime
 import math
 import asyncio
+import time
 
 import numpy as np
 
@@ -9,11 +10,12 @@ from modules.utils.filters import KalmanFilter, KalmanFilter_pitch
 from modules.utils.geo import get_track_str
 from modules.utils.network import detect_network
 from .sensor import Sensor
+from .i2c_utils import i2c_addr_present as _i2c_addr_present
 
 # I2C
 _SENSOR_I2C = False
 try:
-    import smbus
+    import smbus2
     _SENSOR_I2C = True
 except ImportError:
     pass
@@ -35,6 +37,12 @@ Z = 2
 
 G = 9.80665
 
+# I2C addresses for Cython-based helpers (keep in sync with corresponding C headers).
+BHI360_I2C_ADDR = 0x28
+BMP5_I2C_ADDR = 0x47
+BMI270_I2C_ADDR = 0x68
+BMM150_I2C_ADDR = 0x13
+BMM350_I2C_ADDR = 0x14
 
 class SensorI2C(Sensor):
     sensor = {}
@@ -371,6 +379,8 @@ class SensorI2C(Sensor):
             self.sensor["i2c_imu"] = self.sensor_bhi3_s
             self.motion_sensor["ACC"] = True
             self.available_sensors["PRESSURE"]["BHI3_S"] = True  # includes BMP581 and BME688
+            self.sensor["i2c_baro_temp"] = self.sensor_bhi3_s
+            self.bhi360_s_heading_corr = 0
             if (
                 not self.config.G_IMU_AXIS_SWAP_XY["STATUS"]
                 and self.config.G_IMU_AXIS_CONVERSION["STATUS"]
@@ -445,6 +455,8 @@ class SensorI2C(Sensor):
             self.sensor["gas"] = self.sensor_sgp40
         
         if self.available_sensors["MOTION"].get("BHI3_S"):
+            self.sensor["i2c_imu"] = self.sensor_bhi3_s
+        if self.available_sensors["PRESSURE"].get("BHI3_S"):
             self.sensor["i2c_baro_temp"] = self.sensor_bhi3_s
 
     def reset(self):
@@ -537,9 +549,13 @@ class SensorI2C(Sensor):
     def read_bhi3_s(self):
         if not self.available_sensors["MOTION"].get("BHI3_S"):
             return
-        
+
+        imu = self.sensor["i2c_imu"]
+        if hasattr(imu, "ready") and not imu.ready:
+            return
+
         self.values["raw_heading"] = (
-            int(self.sensor["i2c_imu"].heading) - self.bhi360_s_heading_corr + self.config.G_IMU_MAG_DECLINATION
+            int(imu.heading) - self.bhi360_s_heading_corr + self.config.G_IMU_MAG_DECLINATION
             ) % 360
         self.values["heading"] = self.values["raw_heading"]
         self.values["heading_str"] = get_track_str(self.values["heading"])
@@ -547,8 +563,8 @@ class SensorI2C(Sensor):
         # WIP code
         # pitch: the x-axis of acceleration and the sign are opposite.
         # roll : same as acc y: to West (up rotation is plus)
-        self.values["pitch"] = math.radians(-1 * ((self.sensor["i2c_imu"].roll + 360) % 360 - 180))
-        self.values["roll"] = math.radians(self.sensor["i2c_imu"].pitch)
+        self.values["pitch"] = math.radians(-1 * ((imu.roll + 360) % 360 - 180))
+        self.values["roll"] = math.radians(imu.pitch)
         self.values["grade_pitch"] = 100 * math.tan(self.values["pitch"])
 
     def read_light(self):
@@ -1323,17 +1339,37 @@ class SensorI2C(Sensor):
             t -= 1
 
     def detect_bhi360_s_c(self):
+        if not _i2c_addr_present(BHI360_I2C_ADDR):
+            return False
         try:
-            import pyximport
-            pyximport.install()
-            from .i2c.cython.bhi360_shuttle_board_3.bhi3_s_helper import BHI3_S
+            # Prefer a prebuilt Cython extension if available.
+            try:
+                from .i2c.cython.bhi360_shuttle_board_3.bhi3_s_helper import BHI3_S
+            except Exception:
+                import pyximport
+                pyximport.install(inplace=True, language_level=3)
+                from .i2c.cython.bhi360_shuttle_board_3.bhi3_s_helper import BHI3_S
 
             self.sensor_bhi3_s = BHI3_S(1)
-            if self.sensor_bhi3_s.status:
-                return True
-            else:
-                del(self.sensor_bhi3_s)
+            if not self.sensor_bhi3_s.status:
+                self.sensor_bhi3_s.close()
+                del self.sensor_bhi3_s
                 return False
+
+            # Wait briefly so bootstrap can report failure before use.
+            for _ in range(20):  # ~1s
+                if self.sensor_bhi3_s.last_error != 0:
+                    break
+                if getattr(self.sensor_bhi3_s, "ready", False):
+                    break
+                time.sleep(0.05)
+
+            if self.sensor_bhi3_s.last_error != 0:
+                self.sensor_bhi3_s.close()
+                del self.sensor_bhi3_s
+                return False
+
+            return True
         except:
             return False
 
@@ -1455,10 +1491,16 @@ class SensorI2C(Sensor):
             return False
     
     def detect_pressure_bmp581_c(self):
+        if not _i2c_addr_present(BMP5_I2C_ADDR):
+            return False
         try:
-            import pyximport
-            pyximport.install()
-            from .i2c.cython.i2c_helper import BMP5_C
+            # Prefer a prebuilt Cython extension if available.
+            try:
+                from .i2c.cython.i2c_helper import BMP5_C
+            except Exception:
+                import pyximport
+                pyximport.install(inplace=True, language_level=3)
+                from .i2c.cython.i2c_helper import BMP5_C
 
             self.sensor_bmp581 = BMP5_C(1)
             if self.sensor_bmp581.status:
@@ -1630,10 +1672,16 @@ class SensorI2C(Sensor):
             return False
 
     def detect_motion_bmi270_c(self):
+        if not _i2c_addr_present(BMI270_I2C_ADDR):
+            return False
         try:
-            import pyximport
-            pyximport.install(inplace=True)
-            from .i2c.cython.i2c_helper import BMI270_C
+            # Prefer a prebuilt Cython extension if available.
+            try:
+                from .i2c.cython.i2c_helper import BMI270_C
+            except Exception:
+                import pyximport
+                pyximport.install(inplace=True, language_level=3)
+                from .i2c.cython.i2c_helper import BMI270_C
 
             self.sensor_bmi270 = BMI270_C(1)
             if self.sensor_bmi270.status:
@@ -1677,10 +1725,16 @@ class SensorI2C(Sensor):
             return False
 
     def detect_motion_bmm150_c(self):
+        if not _i2c_addr_present(BMM150_I2C_ADDR):
+            return False
         try:
-            import pyximport
-            pyximport.install()
-            from .i2c.cython.i2c_helper import BMM150_C
+            # Prefer a prebuilt Cython extension if available.
+            try:
+                from .i2c.cython.i2c_helper import BMM150_C
+            except Exception:
+                import pyximport
+                pyximport.install(inplace=True, language_level=3)
+                from .i2c.cython.i2c_helper import BMM150_C
 
             self.sensor_bmm150 = BMM150_C(1)
             if self.sensor_bmm150.status:
@@ -1692,10 +1746,16 @@ class SensorI2C(Sensor):
             return False
 
     def detect_motion_bmm350(self):
+        if not _i2c_addr_present(BMM350_I2C_ADDR):
+            return False
         try:
-            import pyximport
-            pyximport.install()
-            from .i2c.cython.i2c_helper import BMM350_C
+            # Prefer a prebuilt Cython extension if available.
+            try:
+                from .i2c.cython.i2c_helper import BMM350_C
+            except Exception:
+                import pyximport
+                pyximport.install(inplace=True, language_level=3)
+                from .i2c.cython.i2c_helper import BMM350_C
 
             self.sensor_bmm350 = BMM350_C(1)
             if self.sensor_bmm350.status:

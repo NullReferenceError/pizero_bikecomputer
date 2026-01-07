@@ -1,5 +1,6 @@
 import abc
 import asyncio
+import time as time_module
 from datetime import datetime, time
 
 import numpy as np
@@ -71,6 +72,7 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
     valid_cutoff_dof = (99.0, 99.0, 99.0)
 
     quit_status = False
+    _TIME_SYNC_RETRY_SEC = 10.0
 
     @property
     def is_real(self):
@@ -78,6 +80,10 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
 
     def sensor_init(self):
         self.reset()
+        self._utc_time_task = None
+        self._utc_time_pending = None
+        self._utc_time_event = None
+        self._time_sync_next_allowed = 0.0
 
         for element in self.elements:
             self.values[element] = np.nan
@@ -94,6 +100,8 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
 
     async def quit(self):
         self.quit_status = True
+        if self._utc_time_task is not None and not self._utc_time_task.done():
+            self._utc_time_task.cancel()
         await self.sleep()
 
     def start_coroutine(self):
@@ -183,9 +191,9 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
             dop = id_or_none(dop)
             # no need to check for satellites, manually computed
 
-        # coordinate
         valid_pos = self.is_position_valid(lat, lon, mode, status, dop, satellites, error)
 
+        # coordinate
         if valid_pos:
             self.values["lat"] = lat
             self.values["lon"] = lon
@@ -195,16 +203,13 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
         for l in ["lat", "lon"]:
             if np.isnan(self.values[l]) and type(self.values[l]) != float:
                 self.values[l] = np.nan
-
-        # altitude
-        if valid_pos and alt is not None:
-            # floor
-            if alt < -500:
-                self.values["alt"] = -500
-            else:
-                self.values["alt"] = alt
-        else:  # copy from pre value
-            self.values["alt"] = self.values["pre_alt"]
+        # raw coordinates
+        self.values["raw_lat"] = lat
+        self.values["raw_lon"] = lon
+        # record coordinates in state
+        if not np.any(np.isnan([self.values["lat"], self.values["lon"]])):
+            self.config.state.set_value("pos_lat", self.values["lat"])
+            self.config.state.set_value("pos_lon", self.values["lon"])
 
         # GPS distance
         if self.config.G_STOPWATCH_STATUS == "START" and not np.any(
@@ -228,6 +233,16 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
 
             # unit: m
             self.values["distance"] += dist
+        
+        # altitude
+        if valid_pos and alt is not None:
+            # floor
+            if alt < -500:
+                self.values["alt"] = -500
+            else:
+                self.values["alt"] = alt
+        else:  # copy from pre value
+            self.values["alt"] = self.values["pre_alt"]
 
         # speed
         if valid_pos and speed is not None:
@@ -239,7 +254,8 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
 
         # track
         if (
-            track is not None
+            valid_pos
+            and track is not None
             and speed is not None
             and speed > self.config.G_GPS_SPEED_CUTOFF
         ):
@@ -247,10 +263,10 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
             self.values["track_str"] = get_track_str(self.values["track"])
         # for GPS unable to get track
         elif (
-            track is None
+            valid_pos
+            and track is None
             and speed is not None
             and speed > self.config.G_GPS_SPEED_CUTOFF
-            and valid_pos
         ):
             self.values["track"] = int(
                 (
@@ -264,6 +280,7 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
         else:
             self.values["track"] = self.values["pre_track"]
 
+        # distance in the course
         self.course.get_index(
             self.values["lat"],
             self.values["lon"],
@@ -274,9 +291,12 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
         )
 
         # timezone
-        if not self.is_fixed and valid_pos and mode == NMEA_MODE_3D:
+        if valid_pos and not self.is_fixed:
             asyncio.create_task(set_timezone(lat, lon))
             self.is_fixed = True
+
+        # gps time
+        self.get_utc_time(gps_time, mode)
 
         # modify altitude with course
         if (
@@ -289,54 +309,66 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
             )
             self.is_altitude_modified = True
 
-        # finally set the values object
-
-        # timestamp
-        self.values["timestamp"] = datetime.now()
-        # get time
-        self.get_utc_time(gps_time)
-
-        # raw coordinates
-        self.values["raw_lat"] = lat
-        self.values["raw_lon"] = lon
-
-        # record in state
-        if not np.any(np.isnan([self.values["lat"], self.values["lon"]])):
-            self.config.state.set_value("pos_lat", self.values["lat"])
-            self.config.state.set_value("pos_lon", self.values["lon"])
-
+        # mode
         self.values["mode"] = mode
 
-        # DOP
-        for i, key in enumerate(["pdop", "hdop", "vdop"]):
-            self.values[key] = dop[i]
-
+        # satellites
         self.values["used_sats"] = satellites[0]
         self.values["total_sats"] = satellites[1]
-
-        # TODO, save error for gpsd, could be improved, not very resilient
-        if error:
-            for i, key in enumerate(["epx", "epy", "epv"]):
-                self.values[key] = error[i]
-
         if satellites[1] is not None:
             self.values["used_sats_str"] = f"{satellites[0]} / {satellites[1]}"
         else:
             self.values["used_sats_str"] = f"{satellites[0]}"
 
-    def get_utc_time(self, gps_time):
-        # UTC time
+        # DOP
+        for i, key in enumerate(["pdop", "hdop", "vdop"]):
+            self.values[key] = dop[i]
+
+        # TODO, save error for gpsd, could be improved, not very resilient
+        if error:
+            for i, key in enumerate(["epx", "epy", "epv"]):
+                self.values[key] = error[i]
+        
+        # timestamp
+        self.values["timestamp"] = datetime.now()
+
+    async def _utc_time_worker(self):
+        # Run UTC time parsing and system time sync in a thread to keep the main asyncio loop responsive.
+        while not self.quit_status:
+            try:
+                await self._utc_time_event.wait()
+            except asyncio.CancelledError:
+                raise
+
+            self._utc_time_event.clear()
+
+            while True:
+                pending = self._utc_time_pending
+                if pending is None:
+                    break
+                self._utc_time_pending = None
+                gps_time, mode = pending
+                try:
+                    await asyncio.to_thread(self._update_utc_time_sync, gps_time, mode)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    app_logger.exception("Failed to update UTC time")
+
+    def _update_utc_time_sync(self, gps_time, mode=None):
+        # NOTE: This function is executed in a worker thread.
         if self.is_null_value(gps_time):
             return
 
         if isinstance(gps_time, datetime):
             gps_time = gps_time.isoformat()
-
         # instance time is to handle pa1010d lib (v0.0.4?),
         # by default it was retuning 1970-01-01 as a date:
-        # we keep this logic s dit will return later and not try to set the time
+        # we keep this logic so it will return later and not try to set the time
         elif isinstance(gps_time, time):
             gps_time = f"1970-01-01T{gps_time.isoformat()}+00:00"
+        elif not isinstance(gps_time, str):
+            gps_time = str(gps_time)
 
         self.values["time"] = gps_time
         self.values["utctime"] = gps_time[11:16]  # [11:19] for HH:MM:SS
@@ -347,8 +379,42 @@ class AbstractSensorGPS(Sensor, metaclass=abc.ABCMeta):
         if gps_time[0:4].isdecimal() and int(gps_time[0:4]) < 2000:
             return
 
-        if not self.is_time_modified:
-            self.is_time_modified = set_time(gps_time)
+        if self.is_time_modified:
+            return
+
+        # Avoid expensive system time sync attempts until we have a 3D fix.
+        # Some receivers output a plausible UTC timestamp before a full fix.
+        try:
+            mode_int = int(mode) if mode is not None else None
+        except (TypeError, ValueError):
+            mode_int = None
+        if mode_int is None or mode_int < NMEA_MODE_3D:
+            return
+
+        # Throttle time sync attempts to keep the system responsive.
+        now = time_module.monotonic()
+        if now < self._time_sync_next_allowed:
+            return
+        self._time_sync_next_allowed = now + self._TIME_SYNC_RETRY_SEC
+
+        try:
+            ok = set_time(gps_time)
+        except Exception:
+            app_logger.exception("Failed to set time")
+            ok = False
+        if ok:
+            self.is_time_modified = True
+
+    def get_utc_time(self, gps_time, mode=None):
+        # Schedule UTC time handling in a background thread.
+        if self.is_null_value(gps_time):
+            return
+        self._utc_time_pending = (gps_time, mode)
+        if self._utc_time_event is None:
+            self._utc_time_event = asyncio.Event()
+        if self._utc_time_task is None or self._utc_time_task.done():
+            self._utc_time_task = asyncio.create_task(self._utc_time_worker())
+        self._utc_time_event.set()
 
     async def output_dummy(self):
         from .dummy import Dummy_GPS
