@@ -3,6 +3,7 @@ from datetime import datetime
 
 from . import ant_device
 from . import ant_device_power
+from modules.app_logger import app_logger
 
 
 class ANT_Device_MultiScan(ant_device.ANT_Device):
@@ -53,8 +54,8 @@ class ANT_Device_MultiScan(ant_device.ANT_Device):
             try:
                 self.channel.open_rx_scan_mode()
                 self.isUse = True
-            except:
-                pass
+            except Exception as e:
+                app_logger.debug(f"[ANT+] Error opening scan mode: {e}")
 
     def stop_scan(self):
         self.disconnect()
@@ -77,7 +78,8 @@ class ANT_Device_MultiScan(ant_device.ANT_Device):
             self.isUse = False
             self.channel.enable_extended_messages(0)
             return True
-        except:
+        except Exception as e:
+            app_logger.debug(f"[ANT+] Error disconnecting scan: {e}")
             return False
 
     def set_main_ant_device(self, device):

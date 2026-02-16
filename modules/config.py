@@ -576,14 +576,17 @@ class Config:
         await self.app_close_event.wait()
 
     async def delay_init(self):
+        import time
         await asyncio.sleep(0.01)
         t = Timer(auto_start=True, auto_log=True, text="delay init: {0:.3f} sec")
 
         # network
         await self.gui.set_boot_status("initialize network modules...")
+        start = time.time()
         from modules.helper.api import api
         from modules.helper.network import Network
         from modules.helper.network.wifi_manager import get_wifi_bt_status
+        print(f'[DEBUG] network imports: {time.time() - start:.2f}s')
 
         # bluetooth
         _, bt_available = get_wifi_bt_status()
@@ -596,13 +599,16 @@ class Config:
                 HAS_DBUS_FAST,
                 HAS_DBUS,
             )
+            print(f'[DEBUG] bluetooth imports: {time.time() - start:.2f}s')
 
             if HAS_DBUS_FAST:
                 self.bt_pan = BTPanDbusFast()
             elif HAS_DBUS:
                 self.bt_pan = BTPanDbus()
             if HAS_DBUS_FAST or HAS_DBUS:
+                print(f'[DEBUG] calling update_bt_pan_devices: {time.time() - start:.2f}s')
                 await self.bt_pan.update_bt_pan_devices()
+                print(f'[DEBUG] update_bt_pan_devices done: {time.time() - start:.2f}s')
 
         if self.G_AUTO_BT_TETHERING and self.bt_pan is None:
             if not self.G_IS_RASPI:
@@ -621,7 +627,10 @@ class Config:
 
         # logger, sensor
         await self.gui.set_boot_status("initialize sensor...")
+        import time
+        start = time.time()
         self.logger.delay_init()
+        print(f'[DEBUG] delay_init done: {time.time() - start:.2f}s')
 
         # GadgetBridge (has to be before gui but after sensors for proper init state of buttons)
         if self.G_IS_RASPI and bt_available:

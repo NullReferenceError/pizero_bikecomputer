@@ -151,8 +151,8 @@ class ANT_Device:
             self.channel.open()
             if isChange:
                 self.config.G_ANT["USE"][self.name] = True
-        except:
-            pass
+        except Exception as e:
+            app_logger.debug(f"[ANT+] Failed to open channel for {self.name}: {e}")
 
     def init_after_connect(self):
         pass
@@ -173,8 +173,8 @@ class ANT_Device:
             self.channel.wait_for_event([0x07,])  # EVENT_CHANNEL_CLOSED
             if isChange:
                 self.config.G_ANT["USE"][self.name] = False
-        except:
-            pass
+        except Exception as e:
+            app_logger.debug(f"[ANT+] Error disconnecting {self.name}: {e}")
 
     def delete(self):
         self.node.delete_channel()

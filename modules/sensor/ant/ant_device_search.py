@@ -3,6 +3,7 @@ from datetime import datetime
 
 from . import ant_device
 from . import ant_device_ctrl
+from modules.app_logger import app_logger
 
 
 class ANT_Device_Search(ant_device.ANT_Device):
@@ -121,8 +122,8 @@ class ANT_Device_Search(ant_device.ANT_Device):
                     try:
                         ctrl.send_data = False
                         ctrl.channel.on_acknowledge_data = ctrl.on_data
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        app_logger.debug(f"[ANT+] Error restoring callback: {e}")
 
                     ctrl.disconnect(isCheck=False, isChange=False)
                     if self._ctrl_searcher_owned:
