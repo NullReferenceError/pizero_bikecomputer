@@ -140,7 +140,10 @@ class SensorCore:
         self.process = psutil.Process()
 
         if SensorGPS:
+            import time
+            start = time.time()
             self.sensor_gps = SensorGPS(config, self.values["GPS"])
+            app_logger.debug(f"[GPS] SensorGPS init took: {time.time() - start:.2f}s")
 
         timers = [
             Timer(auto_start=False, text="  ANT+ : {0:.3f} sec"),
@@ -149,7 +152,21 @@ class SensorCore:
         ]
 
         with timers[0]:
-            self.sensor_ant = SensorANT(config, self.values["ANT+"])
+            if not config.G_ANT["STATUS"]:
+                self.sensor_ant = None
+            else:
+                try:
+                    self.sensor_ant = SensorANT(config, self.values["ANT+"])
+                except Exception as e:
+                    import traceback
+                    app_logger.error(f"[ANT+] Failed to initialize ANT+ sensor: {e}")
+                    app_logger.error("[ANT+] Possible causes:")
+                    app_logger.error("  - ANT+ USB stick is already in use by another program")
+                    app_logger.error("  - USB permission issues (check udev rules)")
+                    app_logger.error("  - USB power management turning off the device")
+                    app_logger.error("  - Hardware issue with ANT+ stick")
+                    app_logger.debug(traceback.format_exc())
+                    self.sensor_ant = None
 
         with timers[1]:
             self.sensor_ble = SensorBLE(config, self.values["BLE"])
@@ -280,7 +297,8 @@ class SensorCore:
 
     def start_coroutine(self):
         asyncio.create_task(self.integrate())
-        self.sensor_ant.start_coroutine()
+        if self.sensor_ant:
+            self.sensor_ant.start_coroutine()
         self.sensor_ble.start_coroutine()
         self.sensor_gps.start_coroutine()
         self.sensor_i2c.start_coroutine()
@@ -288,7 +306,8 @@ class SensorCore:
     async def quit(self):
         self.status_quit = True
         self.sensor_i2c.quit()
-        self.sensor_ant.quit()
+        if self.sensor_ant:
+            self.sensor_ant.quit()
         self.sensor_ble.quit()
         await self.sensor_gps.quit()
         self.sensor_gpio.quit()
@@ -296,7 +315,8 @@ class SensorCore:
     # reset accumulated values
     def reset(self):
         self.sensor_gps.reset()
-        self.sensor_ant.reset()
+        if self.sensor_ant:
+            self.sensor_ant.reset()
         self.sensor_i2c.reset()
         self.reset_internal()
 
@@ -384,7 +404,14 @@ class SensorCore:
             # self.sensor_gps.update()
             ant_update_start = time.perf_counter()
             preprocess_elapsed_ms = (ant_update_start - loop_start_perf) * 1000.0
-            self.sensor_ant.update()  # for dummy
+            if self.sensor_ant:
+                try:
+                    self.sensor_ant.update()  # for dummy
+                except Exception as e:
+                    import traceback
+                    app_logger.warning(f"[ANT+] USB communication error in update: {e}")
+                    app_logger.debug(traceback.format_exc())
+
             ant_update_elapsed_ms = (time.perf_counter() - ant_update_start) * 1000.0
             calc_start_perf = time.perf_counter()
 
@@ -779,10 +806,23 @@ class SensorCore:
             if self.config.G_ANT["USE_AUTO_LIGHT"] and self.config.G_MANUAL_STATUS == "START":
                 if speed_brake_hint or cadence_brake_hint or power_brake_hint:
                     auto_light = True
-                if auto_light:
-                    self.sensor_ant.set_light_mode("FLASH_LOW", auto=True)
-                else:
-                    self.sensor_ant.set_light_mode("OFF", auto=True)
+                    app_logger.debug(
+                        "[BRAKELIGHT] fire "
+                        f"speed={int(speed_brake_hint)} "
+                        f"cadence={int(cadence_brake_hint)} "
+                        f"pitch={int(pitch_brake_hint)}"
+                    )
+
+                if self.sensor_ant:
+                    try:
+                        if auto_light:
+                            self.sensor_ant.set_light_mode("FLASH_LOW", auto=True)
+                        else:
+                            self.sensor_ant.set_light_mode("OFF", auto=True)
+                    except Exception as e:
+                        import traceback
+                        app_logger.warning(f"[ANT+] USB communication error in auto light: {e}")
+                        app_logger.debug(traceback.format_exc())
 
             # cpu and memory
             self.values["integrated"]["system_cpu_percent"] = int(

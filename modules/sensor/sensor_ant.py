@@ -19,6 +19,31 @@ from .ant import ant_device_search
 # ANT+
 _SENSOR_ANT = False
 
+_ANT_DEVICE_ID_VENDOR = 0x0fcf
+_ANT_DEVICE_ID_PRODUCT = 0x1008
+
+def _wake_up_ant_stick():
+    try:
+        import usb.core
+        import usb.util
+        dev = usb.core.find(idVendor=_ANT_DEVICE_ID_VENDOR, idProduct=_ANT_DEVICE_ID_PRODUCT)
+        if dev:
+            try:
+                dev.set_configuration()
+                cfg = dev.get_active_configuration()
+                intf = cfg[(0, 0)]
+                ep_out = usb.util.find_descriptor(
+                    intf,
+                    custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
+                )
+                if ep_out:
+                    ep_out.write(b'', 1000)
+                    app_logger.debug("[ANT+] ANT stick wake-up sent")
+            except Exception as e:
+                app_logger.debug(f"[ANT+] Could not wake up ANT stick (may already be in use): {e}")
+    except Exception as e:
+        app_logger.debug(f"[ANT+] Could not find ANT stick: {e}")
+
 try:
     from ant.easy.node import Node
     from ant.base.driver import find_driver, DriverNotFound
@@ -48,6 +73,7 @@ class SensorANT(Sensor):
             self.config.G_ANT["STATUS"] = False
 
         if self.config.G_ANT["STATUS"]:
+            _wake_up_ant_stick()
             self.node = Node()
             self.node.set_network_key(self.NETWORK_NUM, self.NETWORK_KEY)
 
@@ -110,7 +136,18 @@ class SensorANT(Sensor):
 
     async def start(self):
         if self.config.G_ANT["STATUS"]:
-            await asyncio.get_running_loop().run_in_executor(None, self.node.start)
+            try:
+                await asyncio.get_running_loop().run_in_executor(None, self.node.start)
+            except Exception as e:
+                import traceback
+                app_logger.error("[ANT+] Failed to start ANT+ node")
+                app_logger.error(f"[ANT+] Error: {e}")
+                app_logger.error("[ANT+] Possible causes:")
+                app_logger.error("  - ANT+ USB stick is already in use by another program")
+                app_logger.error("  - USB permission issues (check udev rules)")  
+                app_logger.error("  - USB power management turning off the device")
+                app_logger.error("  - Hardware issue with ANT+ stick")
+                app_logger.debug(traceback.format_exc())
 
     def update(self):
         if self.config.G_ANT["STATUS"] or not self.config.G_DUMMY_OUTPUT:
