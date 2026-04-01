@@ -306,7 +306,7 @@ fi
 # Install additional requirements
 echo "🔧 Installing core pip packages..."
 # essential
-pip install oyaml polyline
+pip install --break-system-packages oyaml polyline
 echo "✅ Core pip packages installed successfully."
 
 if command -v raspi-config >/dev/null 2>&1; then
@@ -319,7 +319,7 @@ fi
 if [[ "$install_pyqt6" == "true" ]]; then
     echo "🔧 Installing PyQt6 packages..."
     sudo apt install -y python3-pyqt6 python3-pyqt6.qtsvg qt6-svg-plugins pyqt6-dev-tools
-    pip install qasync pyqtgraph
+    pip install --break-system-packages qasync pyqtgraph
     # sudo apt install -y python3-pyside6.qtlocation
     echo "✅ PyQt6 packages installed successfully."
     gui_option=()
@@ -363,7 +363,7 @@ if [[ "$install_bluetooth" == "true" ]]; then
     sudo apt install -y bluez-obexd libffi-dev
     # for raspberry pi zero (building with pip is extremely heavy.)
     sudo apt install -y python3-pydantic python3-orjson
-    pip install garminconnect stravacookies bluez-peripheral==0.2.0a5 tb-mqtt-client mmh3
+    pip install --break-system-packages garminconnect stravacookies bluez-peripheral==0.2.0a5 tb-mqtt-client mmh3
     install_timezonefinder_and_flatbuffers
 
     echo "✅ Bluetooth packages installed successfully."
@@ -372,7 +372,7 @@ fi
 # Enable I2C
 if [[ "$enable_i2c" == "true" ]]; then
     sudo apt install -y python3-smbus2 libgpiod3 libgpiod-dev python3-libgpiod
-    pip install magnetic-field-calculator
+    pip install --break-system-packages magnetic-field-calculator
     # Enable I2C on Raspberry Pi
     echo "🔧 Enabling i2c on Raspberry Pi..."
     if [[ "$has_raspi_config" == "true" ]]; then
@@ -586,7 +586,7 @@ if [[ "$install_services" == "true" ]]; then
 
     # check if venv is set, in that case default to using venv to run the script
     #read -p "Use current virtualenv? [y/n] (y): " use_venv
-    if [[ -n "$VIRTUAL_ENV" ]]; then
+    if [[ -n "${VIRTUAL_ENV:-}" ]]; then
         script="$VIRTUAL_ENV/bin/python $script"
     else
     echo "No virtualenv used/activated. Default python will be used"
@@ -632,7 +632,7 @@ if [[ "$install_services" == "true" ]]; then
         content="${content/LOG=/LOG=$log_file}"
 
         echo "$content" | sudo tee $o_post_exec_file > /dev/null
-        chown $TARGET_USER:$TARGET_USER
+        sudo chown $TARGET_USER:$TARGET_USER $o_post_exec_file
     fi
 
 fi
