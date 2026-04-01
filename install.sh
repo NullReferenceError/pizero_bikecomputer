@@ -68,6 +68,129 @@ install_timezonefinder_and_flatbuffers() {
     INSTALL_TZ_DEPS_DONE=true
 }
 
+check_sharp_drm() {
+    KERNEL_MAJOR=$(uname -r | cut -d'.' -f1)
+    KERNEL_MINOR=$(uname -r | cut -d'.' -f2 | cut -d'+' -f1)
+    
+    if [ "$KERNEL_MAJOR" -ge 6 ] && [ "$KERNEL_MINOR" -ge 12 ]; then
+        echo "⚠️  Kernel 6.12+ detected - sharp-drm not recommended"
+        echo "   Use pigpio backend instead:"
+        echo "   - Set USE_DRM = False in setting.conf"
+        echo "   - Ensure pigpiod is running"
+        echo "   - Set display = MIP_Sharp_mono_400x240"
+        return 3
+    fi
+    
+    if [ -d "/sys/module/sharp_drm" ]; then
+        if [ -e "/dev/fb1" ]; then
+            return 0
+        fi
+        if [ -e "/dev/dri/card0" ]; then
+            return 0
+        fi
+        echo "⚠️ sharp_drm module loaded but no display device"
+        return 1
+    fi
+
+    if lsmod 2>/dev/null | grep -q "^sharp_drm"; then
+        if [ -e "/dev/fb1" ]; then
+            return 0
+        fi
+        if [ -e "/dev/dri/card0" ]; then
+            return 0
+        fi
+        echo "⚠️ sharp_drm module loaded but no display device"
+        return 1
+    fi
+
+    if command -v modinfo >/dev/null 2>&1 && modinfo sharp_drm >/dev/null 2>&1; then
+        echo "⚠️ sharp_drm module available but not loaded"
+        echo "   On kernel 6.12+, use pigpio instead"
+        return 2
+    fi
+
+    return 3
+}
+
+install_sharp_drm() {
+    KERNEL_MAJOR=$(uname -r | cut -d'.' -f1)
+    KERNEL_MINOR=$(uname -r | cut -d'.' -f2 | cut -d'+' -f1)
+    
+    if [ "$KERNEL_MAJOR" -ge 6 ] && [ "$KERNEL_MINOR" -ge 12 ]; then
+        echo "⚠️  sharp-drm not supported on kernel 6.12+"
+        echo ""
+        echo "   Use pigpio backend instead:"
+        echo "   1. Edit setting.conf and add:"
+        echo "      [DISPLAY]"
+        echo "      USE_DRM = False"
+        echo "   2. Or set in [GENERAL]: display = MIP_Sharp_mono_400x240"
+        echo "   3. Ensure pigpiod is running:"
+        echo "      sudo systemctl enable pigpiod"
+        echo "      sudo systemctl start pigpiod"
+        return 0
+    fi
+    
+    echo "🔧 Installing sharp_drm kernel module for SHARP MIP display..."
+    
+    if [ -d "/sys/module/sharp_drm" ] && [ -e "/dev/fb1" ]; then
+        echo "✅ sharp_drm already installed and loaded"
+        return 0
+    fi
+
+    echo "📦 Checking kernel headers..."
+    if [ ! -d "/lib/modules/$(uname -r)/build" ]; then
+        echo "📦 Installing kernel headers..."
+        sudo apt update
+        if apt-cache show raspberrypi-kernel-headers >/dev/null 2>&1; then
+            sudo apt install -y raspberrypi-kernel-headers
+        else
+            sudo apt install -y linux-headers-$(uname -r | cut -d'+' -f1)-arm64
+        fi
+    else
+        echo "✅ Kernel headers already available"
+    fi
+
+    if ! command -v git >/dev/null 2>&1; then
+        sudo apt install -y git
+    fi
+    if ! command -v make >/dev/null 2>&1; then
+        sudo apt install -y make
+    fi
+
+    local sharp_driversrc="$HOME/sharp-drm-driver"
+    if [ -d "$sharp_driversrc" ]; then
+        echo "📦 Updating existing sharp-drm-driver..."
+        cd "$sharp_driversrc"
+        git pull
+    else
+        echo "📦 Cloning sharp-drm-driver..."
+        git clone https://github.com/ardangelo/sharp-drm-driver.git "$sharp_driversrc"
+        cd "$sharp_driversrc"
+    fi
+
+    echo "🔨 Building sharp_drm module..."
+    make
+
+    echo "📦 Installing sharp_drm module..."
+    sudo make install
+
+    echo "🔄 Loading sharp_drm module..."
+    sudo modprobe sharp_drm
+
+    echo "🔄 Loading device tree overlay..."
+    sudo dtoverlay sharp-drm
+
+    if [ -e "/dev/dri/card0" ] || [ -e "/dev/fb1" ]; then
+        echo "✅ sharp_drm installed successfully!"
+        echo "   Device: $([ -e /dev/dri/card0 ] && echo /dev/dri/card0 || echo /dev/fb1)"
+        return 0
+    else
+        echo "⚠️ sharp_drm installed but no display device found"
+        echo "   Try rebooting: sudo reboot"
+        return 1
+    fi
+}
+
 #############################################################
 # argument parsing
 #############################################################
@@ -384,6 +507,65 @@ fi
 #############################################################
 
 if [[ "$install_services" == "true" ]]; then
+
+    echo "🔍 Checking for SHARP MIP display and sharp_drm kernel module..."
+    sharp_drm_loaded="false"
+    check_sharp_drm
+    sharp_drm_status=$?
+    case $sharp_drm_status in
+        0)
+            if [ -e "/dev/fb1" ]; then
+                echo "✅ sharp_drm kernel module detected with /dev/fb1 available"
+            else
+                echo "✅ sharp_drm kernel module detected with /dev/dri/card0 (kernel 6.12+)"
+            fi
+            sharp_drm_loaded="true"
+            ;;
+        1|2|3)
+            if [[ "$install_sharp_drm_auto" == "true" ]]; then
+                echo "🔧 Auto-installing sharp_drm (--sharp-drm specified)..."
+                if install_sharp_drm; then
+                    sharp_drm_loaded="true"
+                else
+                    echo "⚠️  sharp_drm install completed but /dev/fb1 not found"
+                    echo "   You may need to reboot: sudo reboot"
+                fi
+            else
+                echo ""
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "⚠️  SHARP MIP display detected but sharp_drm module needs setup"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo ""
+                prompt_and_store "Install sharp_drm kernel module automatically?" install_sharp_drm_prompt
+                if [[ "$install_sharp_drm_prompt" == "true" ]]; then
+                    if install_sharp_drm; then
+                        sharp_drm_loaded="true"
+                    else
+                        echo "⚠️  sharp_drm install completed but /dev/fb1 not found"
+                        echo "   Try rebooting and running install.sh again"
+                        prompt_and_store "Continue with offscreen mode for now?" continue_offscreen
+                        if [[ "$continue_offscreen" != "true" ]]; then
+                            echo "👋 Exiting. Reboot and run install.sh again."
+                            exit 0
+                        fi
+                    fi
+                else
+                    echo "⚠️  Skipping sharp_drm installation"
+                    echo "   For SHARP MIP display, you need:"
+                    echo "   1. git clone https://github.com/ardangelo/sharp-drm-driver.git"
+                    echo "   2. cd sharp-drm-driver && make && sudo make install"
+                    echo "   3. sudo modprobe sharp_drm"
+                    echo ""
+                    echo "   Then set QT_QPA_PLATFORM=linuxfb:fb=/dev/fb1"
+                    prompt_and_store "Continue with offscreen mode for now?" continue_offscreen
+                    if [[ "$continue_offscreen" != "true" ]]; then
+                        echo "👋 Exiting."
+                        exit 0
+                    fi
+                fi
+            fi
+            ;;
+    esac
 
     # GPS service configuration
     if [[ "$install_gps" == "true" ]]; then
