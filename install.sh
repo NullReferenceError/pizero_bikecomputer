@@ -268,14 +268,35 @@ TARGET_USER="${SUDO_USER:-${LOGNAME:-$USER}}"
 venv_path=~/"$venv_name"
 
 #############################################################
-# get user input
+# get user input (interactive mode)
 #############################################################
 
-TARGET_USER="${SUDO_USER:-${LOGNAME:-$USER}}"
+if [[ "$auto_yes" != "true" ]]; then
+    set +e
+    prompt_and_store "Setup Python virtual environment?" setup_python_venv
+    if [[ "$setup_python_venv" == "true" ]]; then
+        read -rp "📦 Enter virtual environment name (default: .venv): " venv_name
+        venv_name="${venv_name:-.venv}"
+        venv_path=~/"$venv_name"
+    fi
+    prompt_and_store "Install GUI(PyQt6) packages?" install_pyqt6
+    prompt_and_store "Install ANT+ packages?" install_ant_plus
+    prompt_and_store "Install GPS packages?" install_gps
+    prompt_and_store "Install Bluetooth packages?" install_bluetooth
+    prompt_and_store "Enable I2C?" enable_i2c
+    prompt_and_store "Enable SPI?" enable_spi
+    prompt_and_store "Install services?" install_services
+    if [[ "$install_services" == "true" ]]; then
+        prompt_and_store "Using TFT/XWindow to start pizero_bikecomputer.service?" install_services_use_x
+    fi
+    set -e
+fi
 
 #############################################################
 # install packages
 #############################################################
+
+TARGET_USER="${SUDO_USER:-${LOGNAME:-$USER}}"
 
 # system update
 sudo apt update
