@@ -41,6 +41,10 @@ ask_user() {
 prompt_and_store() {
     local prompt="$1"
     local var_name="$2"
+    if [[ "$auto_yes" == "true" ]]; then
+        eval "$var_name=true"
+        return 0
+    fi
     ask_user "$prompt"
     case $? in
         0) eval "$var_name=true" ;;
@@ -65,28 +69,85 @@ install_timezonefinder_and_flatbuffers() {
 }
 
 #############################################################
+# argument parsing
+#############################################################
+
+show_usage() {
+    cat << EOF
+Usage: $0 [OPTIONS]
+
+Options:
+    --venv              Setup Python virtual environment (default: yes)
+    --venv-name NAME    Virtual environment name (default: .venv)
+    --no-venv           Skip virtual environment setup
+    --pyqt6             Install PyQt6 packages (default: yes)
+    --no-pyqt6          Skip PyQt6 packages
+    --ant               Install ANT+ packages
+    --no-ant            Skip ANT+ packages (default)
+    --gps               Install GPS packages
+    --no-gps            Skip GPS packages (default)
+    --bluetooth         Install Bluetooth packages
+    --no-bluetooth      Skip Bluetooth packages (default)
+    --i2c               Enable I2C
+    --spi               Enable SPI
+    --services          Install systemd services
+    --xwindow           Use X11 instead of framebuffer for services
+    --sharp-drm         Auto-install sharp_drm kernel module
+    -y, --yes           Answer yes to all prompts
+    -h, --help          Show this help message
+
+Examples:
+    $0 --pyqt6 --spi --services --sharp-drm
+    $0 -y  # non-interactive with defaults
+EOF
+    exit 0
+}
+
+setup_python_venv="true"
+venv_name=".venv"
+install_pyqt6="true"
+install_ant_plus="false"
+install_gps="false"
+install_bluetooth="false"
+enable_i2c="false"
+enable_spi="false"
+install_services="false"
+install_services_use_x="false"
+install_sharp_drm_auto="false"
+auto_yes="false"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --venv)           setup_python_venv="true" ;;
+        --venv-name)      venv_name="$2"; shift ;;
+        --no-venv)        setup_python_venv="false" ;;
+        --pyqt6)          install_pyqt6="true" ;;
+        --no-pyqt6)       install_pyqt6="false" ;;
+        --ant)            install_ant_plus="true" ;;
+        --no-ant)         install_ant_plus="false" ;;
+        --gps)            install_gps="true" ;;
+        --no-gps)         install_gps="false" ;;
+        --bluetooth)      install_bluetooth="true" ;;
+        --no-bluetooth)   install_bluetooth="false" ;;
+        --i2c)            enable_i2c="true" ;;
+        --spi)            enable_spi="true" ;;
+        --services)       install_services="true" ;;
+        --xwindow)        install_services="true"; install_services_use_x="true" ;;
+        --sharp-drm)      install_sharp_drm_auto="true" ;;
+        -y|--yes)         auto_yes="true" ;;
+        -h|--help)        show_usage ;;
+        *) echo "Unknown option: $1"; show_usage ;;
+    esac
+    shift
+done
+
+TARGET_USER="${SUDO_USER:-${LOGNAME:-$USER}}"
+venv_path=~/"$venv_name"
+
+#############################################################
 # get user input
 #############################################################
 
-# temporarily disable error checking to allow for user input
-set +e
-prompt_and_store "Setup Python virtual environment?" setup_python_venv
-if [[ "$setup_python_venv" == "true" ]]; then
-    read -rp "📦 Enter virtual environment name (default: .venv): " venv_name
-    venv_name="${venv_name:-.venv}"
-    venv_path=~/"$venv_name"
-fi
-prompt_and_store "Install GUI(PyQt6) packages?" install_pyqt6
-prompt_and_store "Install ANT+ packages?" install_ant_plus
-prompt_and_store "Install GPS packages?" install_gps
-prompt_and_store "Install Bluetooth packages?" install_bluetooth
-prompt_and_store "Enable I2C?" enable_i2c
-prompt_and_store "Enable SPI?" enable_spi
-prompt_and_store "Install services?" install_services
-if [[ "$install_services" == "true" ]]; then
-    prompt_and_store "Using TFT/XWindow to start pizero_bikecomputer.service?" install_services_use_x
-fi
-set -e
 TARGET_USER="${SUDO_USER:-${LOGNAME:-$USER}}"
 
 #############################################################
