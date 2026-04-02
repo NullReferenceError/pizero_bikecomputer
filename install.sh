@@ -658,5 +658,28 @@ if [[ "$install_services" == "true" ]]; then
 
 fi
 
-echo "✅ pizero_bikecomputer initial setup completed successfully! Please reboot."  # or "Now rebooting"
-#sudo reboot
+echo "✅ pizero_bikecomputer initial setup completed successfully!"
+echo ""
+
+# Ask user if they want to start the service now or reboot
+if [[ "$auto_yes" == "true" ]]; then
+    echo "Starting pizero_bikecomputer service..."
+    sudo systemctl daemon-reload
+    sudo systemctl start pizero_bikecomputer
+    echo "✅ Service started. Check status with: systemctl status pizero_bikecomputer"
+else
+    echo "To complete the setup, you can either:"
+    echo "  1. Start the service now: sudo systemctl start pizero_bikecomputer"
+    echo "  2. Reboot the system: sudo reboot"
+    echo ""
+    prompt_and_store "Start the service now?" start_service
+    if [[ "$start_service" == "true" ]]; then
+        echo "Starting pizero_bikecomputer service..."
+        sudo systemctl daemon-reload
+        sudo systemctl start pizero_bikecomputer
+        echo "✅ Service started. Check status with: systemctl status pizero_bikecomputer"
+        echo "   View logs with: tail -f ~/pizero_bikecomputer/log/debug.log"
+    else
+        echo "👋 Remember to start the service or reboot when ready!"
+    fi
+fi
