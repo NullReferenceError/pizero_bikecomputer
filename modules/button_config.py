@@ -351,6 +351,51 @@ class Button_Config:
     def __init__(self, config):
         self.config = config
         self._dual_map_mode_active = False
+        self._apply_custom_gpio_pins()
+
+    def _apply_custom_gpio_pins(self):
+        """Apply custom GPIO pin assignments from setting.conf if configured."""
+        if not hasattr(self.config, 'G_GPIO_BUTTON_CUSTOM_PINS'):
+            return
+        
+        custom_pins = self.config.G_GPIO_BUTTON_CUSTOM_PINS
+        if not custom_pins or not isinstance(custom_pins, dict):
+            return
+        
+        # Get the current display type to know which button profile to modify
+        display_type = getattr(self.config, 'G_DISPLAY', 'None')
+        
+        # Only apply custom pins to GPIO-based displays
+        gpio_displays = ['PiTFT', 'Papirus', 'DFRobot_RPi_Display', 
+                        'Pirate_Audio', 'Pirate_Audio_old', 'Display_HAT_Mini']
+        
+        if display_type not in gpio_displays:
+            return
+        
+        if display_type not in self.G_BUTTON_DEF:
+            return
+        
+        # Build a reverse mapping: function_name -> old_gpio_pin
+        function_to_old_pin = {}
+        for mode, buttons in self.G_BUTTON_DEF[display_type].items():
+            for gpio_pin, (short_func, long_func) in buttons.items():
+                if short_func and short_func in custom_pins:
+                    function_to_old_pin[short_func] = gpio_pin
+        
+        # Now remap: remove old pin, add new pin with same function tuple
+        for func_name, new_pin in custom_pins.items():
+            if func_name in function_to_old_pin:
+                old_pin = function_to_old_pin[func_name]
+                # Update all modes that have this function
+                for mode, buttons in self.G_BUTTON_DEF[display_type].items():
+                    if old_pin in buttons:
+                        func_tuple = buttons[old_pin]
+                        del buttons[old_pin]
+                        buttons[new_pin] = func_tuple
+                        app_logger.info(
+                            f"Custom GPIO: {display_type} {mode} - "
+                            f"{func_name} moved from GPIO {old_pin} to GPIO {new_pin}"
+                        )
 
     def _resolve_button_profile(self, button_hard):
         if button_hard != "Zwift_Click_V2":
