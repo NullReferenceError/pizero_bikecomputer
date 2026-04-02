@@ -427,13 +427,21 @@ class Button_Config:
                     )
                 
                 # For menu navigation functions, add to MENU mode
-                if func_name in ['scroll_prev', 'scroll_next'] and 'MENU' in self.G_BUTTON_DEF[display_type]:
-                    menu_func = 'back_menu' if func_name == 'scroll_prev' else 'press_tab'
-                    self.G_BUTTON_DEF[display_type]['MENU'][new_pin] = (menu_func, '')
-                    app_logger.info(
-                        f"Custom GPIO: {display_type} MENU - "
-                        f"Created {menu_func} on GPIO {new_pin}"
-                    )
+                if 'MENU' in self.G_BUTTON_DEF[display_type]:
+                    # Map MAIN functions to appropriate MENU functions
+                    menu_mapping = {
+                        'scroll_prev': 'back_menu',
+                        'scroll_next': 'press_tab',
+                        'start_and_stop_manual': 'press_space',  # Select/activate
+                        'count_laps': 'press_shift_tab',  # Previous item
+                    }
+                    if func_name in menu_mapping:
+                        menu_func = menu_mapping[func_name]
+                        self.G_BUTTON_DEF[display_type]['MENU'][new_pin] = (menu_func, '')
+                        app_logger.info(
+                            f"Custom GPIO: {display_type} MENU - "
+                            f"Created {menu_func} on GPIO {new_pin}"
+                        )
 
     def _resolve_button_profile(self, button_hard):
         if button_hard != "Zwift_Click_V2":
