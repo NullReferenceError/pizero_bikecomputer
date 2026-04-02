@@ -22,6 +22,21 @@ _SENSOR_ANT = False
 _ANT_DEVICE_ID_VENDOR = 0x0fcf
 _ANT_DEVICE_ID_PRODUCT = 0x1008
 
+def _reset_ant_stick():
+    try:
+        import usb.core
+        import usb.util
+        dev = usb.core.find(idVendor=_ANT_DEVICE_ID_VENDOR, idProduct=_ANT_DEVICE_ID_PRODUCT)
+        if dev:
+            try:
+                dev.reset()
+                dev.set_configuration()
+                app_logger.debug("[ANT+] ANT stick reset and configured")
+            except Exception as e:
+                app_logger.debug(f"[ANT+] Could not reset ANT stick: {e}")
+    except Exception as e:
+        app_logger.debug(f"[ANT+] Could not find ANT stick for reset: {e}")
+
 def _wake_up_ant_stick():
     try:
         import usb.core
@@ -72,8 +87,11 @@ class SensorANT(Sensor):
         if self.config.G_ANT["STATUS"] and not _SENSOR_ANT:
             self.config.G_ANT["STATUS"] = False
 
+        # Reset the ANT stick before openant initializes to avoid USB issues
         if self.config.G_ANT["STATUS"]:
-            _wake_up_ant_stick()
+            _reset_ant_stick()
+        
+        if self.config.G_ANT["STATUS"]:
             self.node = Node()
             self.node.set_network_key(self.NETWORK_NUM, self.NETWORK_KEY)
 

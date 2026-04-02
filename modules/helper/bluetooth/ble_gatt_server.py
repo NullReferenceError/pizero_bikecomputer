@@ -480,7 +480,7 @@ class GadgetbridgeService(Service):
             self.bus = await get_message_bus()
             await self.register(self.bus)
             agent = NoIoAgent()
-            await agent.register(self.bus)
+            await agent.register(self.bus, path="/pizero_bikecomputer/agent", default=False)
             adapter = await Adapter.get_first(self.bus)
             advert = Advertisement(self.product, [self.service_uuid], 0, 180)
             await advert.register(self.bus, adapter)
