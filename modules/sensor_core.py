@@ -174,8 +174,10 @@ class SensorCore:
         with timers[2]:
             self.sensor_i2c = SensorI2C(config, self.values["I2C"])
 
+        app_logger.info("[GPIO DEBUG] Initializing SensorGPIO...")
         self.sensor_gpio = SensorGPIO(config, None)
         self.sensor_gpio.update()
+        app_logger.info("[GPIO DEBUG] SensorGPIO initialization complete")
 
         app_logger.info("[sensor] Initialize:")
         log_timers(timers)
