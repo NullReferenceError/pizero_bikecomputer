@@ -51,23 +51,23 @@ class SensorGPIO(Sensor):
 
     def sensor_init(self):
         if not _SENSOR_GPIOD:
-            app_logger.warning("[GPIO DEBUG] gpiod not available")
+            app_logger.debug("[GPIO] gpiod not available")
             return
 
         all_displays = self._PULLUP_DISPLAYS + self._NO_PULLUP_DISPLAYS
-        app_logger.info(f"[GPIO DEBUG] Display: {self.config.G_DISPLAY}, Supported displays: {all_displays}")
+        app_logger.debug(f"[GPIO] Display: {self.config.G_DISPLAY}, Supported displays: {all_displays}")
         
         if self.config.G_DISPLAY not in all_displays:
-            app_logger.warning(f"[GPIO DEBUG] Display {self.config.G_DISPLAY} not in GPIO display list")
+            app_logger.debug(f"[GPIO] Display {self.config.G_DISPLAY} not in GPIO display list")
             return
 
         button_keys = list(
             self.config.button_config.G_BUTTON_DEF[self.config.G_DISPLAY]["MAIN"].keys()
         )
-        app_logger.info(f"[GPIO DEBUG] Button pins to monitor: {button_keys}")
+        app_logger.debug(f"[GPIO] Button pins to monitor: {button_keys}")
         
         if not button_keys:
-            app_logger.warning("[GPIO DEBUG] No button keys found")
+            app_logger.debug("[GPIO] No button keys found")
             return
 
         # Initialize button state tracking
@@ -80,11 +80,11 @@ class SensorGPIO(Sensor):
             }
 
         use_pullup = self.config.G_DISPLAY in self._PULLUP_DISPLAYS
-        app_logger.info(f"[GPIO DEBUG] Use pull-up resistors: {use_pullup}")
+        app_logger.debug(f"[GPIO] Use pull-up resistors: {use_pullup}")
 
         try:
             self._init_gpiod(button_keys, use_pullup)
-            app_logger.info(f"[GPIO DEBUG] GPIO lines requested successfully for pins: {button_keys}")
+            app_logger.info(f"[GPIO] Initialized button monitoring on pins: {button_keys}")
         except Exception as e:
             app_logger.error(f"Failed to initialize GPIO: {e}")
             self._line_request = None
@@ -181,10 +181,10 @@ class SensorGPIO(Sensor):
     async def _handle_edge_event(self, event):
         """Handle a single edge event (FALLING only - button press)."""
         pin = event.line_offset
-        app_logger.info(f"[GPIO DEBUG] Edge event detected on GPIO {pin}")
+        app_logger.debug(f"[GPIO] Edge event detected on GPIO {pin}")
         
         if pin not in self.button_state:
-            app_logger.warning(f"[GPIO DEBUG] GPIO {pin} not in button_state, ignoring")
+            app_logger.debug(f"[GPIO] GPIO {pin} not in button_state, ignoring")
             return
 
         state = self.button_state[pin]
@@ -192,11 +192,11 @@ class SensorGPIO(Sensor):
 
         # Software debounce: ignore events within debounce period
         if (current_time - state["last_action_time"]) < (self._DEBOUNCE_MS / 1000.0):
-            app_logger.info(f"[GPIO DEBUG] GPIO {pin} debounced (too soon)")
+            app_logger.debug(f"[GPIO] GPIO {pin} debounced (too soon)")
             return
 
         # FALLING edge = button pressed
-        app_logger.info(f"[GPIO DEBUG] GPIO {pin} button pressed")
+        app_logger.debug(f"[GPIO] GPIO {pin} button pressed")
         state["pressed"] = True
         state["press_time"] = current_time
         state["long_press_fired"] = False

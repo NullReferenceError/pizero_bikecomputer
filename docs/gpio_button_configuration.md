@@ -265,6 +265,23 @@ scroll_next = 16
 
 ## Troubleshooting
 
+### Enable GPIO Debug Logging
+
+To see detailed GPIO button debug messages, edit `modules/app_logger.py`:
+
+```python
+# Change this line:
+app_logger.setLevel(level=logging.INFO)
+
+# To this:
+app_logger.setLevel(level=logging.DEBUG)
+```
+
+Then restart the service. You'll see messages like:
+- `[GPIO] Button pins to monitor: [5, 6, 13, 19]`
+- `[GPIO] Edge event detected on GPIO 5`
+- `[GPIO] GPIO 5 button pressed`
+
 ### Buttons Not Working
 
 1. **Check display type is set correctly in setting.conf:**
