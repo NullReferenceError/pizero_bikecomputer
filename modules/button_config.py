@@ -296,6 +296,15 @@ class Button_Config:
         },
         "Pirate_Audio_old": {},
         "Display_HAT_Mini": {},
+        # MIP displays with custom GPIO buttons
+        "MIP_Sharp_mono_400x240": {
+            "MAIN": {},
+            "MENU": {},
+        },
+        "MIP_Sharp_mono_320x240": {
+            "MAIN": {},
+            "MENU": {},
+        },
     }
     # copy button definition
     G_BUTTON_DEF["IOExpander"] = copy.deepcopy(G_BUTTON_DEF["Button_Shim"])
@@ -365,9 +374,10 @@ class Button_Config:
         # Get the current display type to know which button profile to modify
         display_type = getattr(self.config, 'G_DISPLAY', 'None')
         
-        # Only apply custom pins to GPIO-based displays
+        # GPIO-based displays (with default buttons) and MIP displays (no default buttons)
         gpio_displays = ['PiTFT', 'Papirus', 'DFRobot_RPi_Display', 
-                        'Pirate_Audio', 'Pirate_Audio_old', 'Display_HAT_Mini']
+                        'Pirate_Audio', 'Pirate_Audio_old', 'Display_HAT_Mini',
+                        'MIP_Sharp_mono_400x240', 'MIP_Sharp_mono_320x240']
         
         if display_type not in gpio_displays:
             return
@@ -375,18 +385,28 @@ class Button_Config:
         if display_type not in self.G_BUTTON_DEF:
             return
         
-        # Build a reverse mapping: function_name -> old_gpio_pin
+        # Build a reverse mapping: function_name -> old_gpio_pin (for displays with existing buttons)
         function_to_old_pin = {}
         for mode, buttons in self.G_BUTTON_DEF[display_type].items():
             for gpio_pin, (short_func, long_func) in buttons.items():
                 if short_func and short_func in custom_pins:
                     function_to_old_pin[short_func] = gpio_pin
         
-        # Now remap: remove old pin, add new pin with same function tuple
+        # Map function names to common long-press functions
+        long_press_defaults = {
+            'scroll_prev': '',
+            'scroll_next': 'enter_menu',
+            'count_laps': 'reset_count',
+            'start_and_stop_manual': '',
+            'brightness_control': '',
+            'enter_menu': '',
+        }
+        
+        # Now remap or create button assignments
         for func_name, new_pin in custom_pins.items():
             if func_name in function_to_old_pin:
+                # Existing function - remap to new pin
                 old_pin = function_to_old_pin[func_name]
-                # Update all modes that have this function
                 for mode, buttons in self.G_BUTTON_DEF[display_type].items():
                     if old_pin in buttons:
                         func_tuple = buttons[old_pin]
@@ -396,6 +416,24 @@ class Button_Config:
                             f"Custom GPIO: {display_type} {mode} - "
                             f"{func_name} moved from GPIO {old_pin} to GPIO {new_pin}"
                         )
+            else:
+                # New function - create button assignment for MAIN mode
+                long_press = long_press_defaults.get(func_name, '')
+                if 'MAIN' in self.G_BUTTON_DEF[display_type]:
+                    self.G_BUTTON_DEF[display_type]['MAIN'][new_pin] = (func_name, long_press)
+                    app_logger.info(
+                        f"Custom GPIO: {display_type} MAIN - "
+                        f"Created {func_name} on GPIO {new_pin}"
+                    )
+                
+                # For menu navigation functions, add to MENU mode
+                if func_name in ['scroll_prev', 'scroll_next'] and 'MENU' in self.G_BUTTON_DEF[display_type]:
+                    menu_func = 'back_menu' if func_name == 'scroll_prev' else 'press_tab'
+                    self.G_BUTTON_DEF[display_type]['MENU'][new_pin] = (menu_func, '')
+                    app_logger.info(
+                        f"Custom GPIO: {display_type} MENU - "
+                        f"Created {menu_func} on GPIO {new_pin}"
+                    )
 
     def _resolve_button_profile(self, button_hard):
         if button_hard != "Zwift_Click_V2":

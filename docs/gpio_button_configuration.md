@@ -346,15 +346,20 @@ When adding custom button configurations, use these safe GPIO pins:
 
 ### Basic Button Connection
 
+**With internal pull-up (recommended - simpler wiring):**
 ```
-3.3V ──────┬────── Button ────── GPIO Pin
-           │
-         [10kΩ]  (pull-up resistor)
-           │
-          GND
+GPIO Pin ── Button ── GND
 ```
 
-**Note:** If using displays with internal pull-ups (PiTFT, Pirate Audio), external resistors are not needed.
+**With external pull-up resistor:**
+```
+3.3V ──[10kΩ]── GPIO Pin ── Button ── GND
+```
+
+**Notes:** 
+- Most displays (PiTFT, Pirate Audio, MIP Sharp) use internal pull-ups, so external resistors are NOT needed
+- Only Papirus requires external pull-up resistors
+- Buttons are active-LOW: pressed = GPIO reads LOW (0V)
 
 ### Active Low vs Active High
 
