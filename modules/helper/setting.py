@@ -61,6 +61,19 @@ class Setting:
             if "GADGETBRIDGE_USE_GPS" in c:
                 self.config.G_GADGETBRIDGE["USE_GPS"] = c.getboolean("GADGETBRIDGE_USE_GPS")
 
+        if "GPIO_BUTTONS" in self.config_parser:
+            c = self.config_parser["GPIO_BUTTONS"]
+            # Read custom GPIO pin assignments for the current display type
+            # Format: button_function = gpio_pin_number
+            # Example: scroll_prev = 5
+            if hasattr(self.config, 'G_GPIO_BUTTON_CUSTOM_PINS'):
+                for key in c:
+                    try:
+                        pin_number = int(c[key])
+                        self.config.G_GPIO_BUTTON_CUSTOM_PINS[key] = pin_number
+                    except ValueError:
+                        print(f"Warning: Invalid GPIO pin number for {key}: {c[key]}")
+
         if "MAP_AND_DATA" in self.config_parser:
             c = self.config_parser["MAP_AND_DATA"]
             if "MAP" in c:

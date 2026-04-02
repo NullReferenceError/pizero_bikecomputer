@@ -238,6 +238,11 @@ class Config:
         "USE_DRM": False,
     }
 
+    # GPIO button custom pin assignments
+    # Populated from setting.conf [GPIO_BUTTONS] section
+    # Maps button function names to GPIO BCM pin numbers
+    G_GPIO_BUTTON_CUSTOM_PINS = {}
+
     # auto backlight
     G_USE_AUTO_BACKLIGHT = True
     G_AUTO_BACKLIGHT_CUTOFF = 10
