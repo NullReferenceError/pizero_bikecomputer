@@ -594,6 +594,20 @@ if [[ "$install_services" == "true" ]]; then
         sudo systemctl start gpsd
     fi
 
+    # Build Cython modules to avoid runtime compilation delays
+    echo ""
+    echo "🔨 Building Cython modules..."
+    if [[ -f "scripts/build_cython.sh" ]]; then
+        if bash scripts/build_cython.sh; then
+            echo "✅ Cython modules built successfully"
+        else
+            echo "⚠️  Warning: Cython build failed. Modules will be compiled on first run."
+            echo "   This may cause a delay when starting the service."
+        fi
+    else
+        echo "⚠️  Warning: build_cython.sh not found. Skipping Cython build."
+    fi
+
     # install pizero_bikecomputer.service
     current_dir=$(pwd)
     script="$current_dir/pizero_bikecomputer.py"
