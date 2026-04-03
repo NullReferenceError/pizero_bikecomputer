@@ -70,16 +70,26 @@ build_module() {
     # Build the module
     python3 << EOF
 import sys
-from distutils.core import setup
+from distutils.core import setup, Extension
 from Cython.Build import cythonize
 import numpy
 
-setup(
-    ext_modules=cythonize(
-        "${module_name}.pyx",
-        compiler_directives={'language_level': '3'},
+ext_modules = cythonize(
+    Extension(
+        "${module_name}",
+        ["${module_name}.pyx"],
+        extra_compile_args=["-O3", "-std=c++17"] if "${module_name}".endswith("_pigpio") or "${module_name}".endswith("_spidev") else ["-O3"],
+        extra_link_args=[],
+        language="c++" if "${module_name}".endswith("_pigpio") or "${module_name}".endswith("_spidev") else "c",
     ),
+    compiler_directives={'language_level': '3'},
+)
+
+setup(
+    name="${module_name}",
+    ext_modules=ext_modules,
     include_dirs=[numpy.get_include()],
+    script_args=['build_ext', '--inplace']
 )
 EOF
 
