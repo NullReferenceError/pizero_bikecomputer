@@ -55,6 +55,7 @@ upload_repo() {
         --exclude='*.pyc' \
         --exclude='.venv' \
         --exclude='logs/*.log' \
+        --exclude='*.so' \
         "$LOCAL_REPO/" "$PI_HOST:$PI_PATH/"
     echo "✅ Upload complete"
 }
