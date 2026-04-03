@@ -631,7 +631,9 @@ if [[ "$install_services" == "true" ]]; then
         # add fullscreen option
         script="$script -f"
         envs="Environment=\"QT_QPA_PLATFORM=xcb\"\\nEnvironment=\"DISPLAY=:0\"\\nEnvironment=\"XAUTHORITY=/home/$TARGET_USER/.Xauthority\"\\n"
-        after="After=display-manager.service\\n"
+        # Headful mode: Wait for display manager and pigpiod
+        after="After=display-manager.service pigpiod.service\\n"
+        wants="Wants=display-manager.service\\n"
     else
         envs="Environment=\"QT_QPA_PLATFORM=offscreen\"\\n"
         # DRM
@@ -639,7 +641,9 @@ if [[ "$install_services" == "true" ]]; then
         # PiTFT
         #envs="Environment=\"QT_QPA_FB_HIDECURSOR=1 QT_QPA_PLATFORM=linuxfb:fb=/dev/fb1\"\\n"
         # and add vt.global_cursor_default=0 fbcon=map:0 or 1(map console with /dev/fbX)
-        after=""
+        # Headless mode: Wait for pigpiod and gpsd
+        after="After=pigpiod.service gpsd.service\\n"
+        wants="Wants=pigpiod.service gpsd.service\\n"
     fi
 
     if [ -f "$i_service_file" ]; then
@@ -655,8 +659,12 @@ if [[ "$install_services" == "true" ]]; then
         # inject environment variables
         content=$(echo "$content" | sed "/\[Install\]/i $envs")
 
+        # inject After= and Wants= dependencies into [Unit] section
         if [[ -n "$after" ]]; then
-            content=$(echo "$content" | sed "/\[Service\]/i $after")
+            content=$(echo "$content" | sed "/Description=PizeroBikecomputer/a $after")
+        fi
+        if [[ -n "$wants" ]]; then
+            content=$(echo "$content" | sed "/Description=PizeroBikecomputer/a $wants")
         fi
         echo "$content" | sudo tee $o_service_file > /dev/null
         sudo systemctl enable pizero_bikecomputer
