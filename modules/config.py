@@ -229,7 +229,8 @@ class Config:
 
     # display type (overwritten with setting.conf)
     # PiTFT, MIP, MIP_640, MIP_Mraa, MIP_Mraa_640, MIP_Sharp, MIP_Sharp_320, 
-    # Papirus, DFRobot_RPi_Display, Pirate_Audio, Pirate_Audio_old(Y button is GPIO 20), Display_HAT_Mini
+    # Papirus, DFRobot_RPi_Display, Pirate_Audio, Pirate_Audio_old(Y button is GPIO 20), 
+    # Display_HAT_Mini, HyperPixel_4
     G_DISPLAY = "None"
 
     G_DISPLAY_PARAM = {
