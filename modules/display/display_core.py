@@ -28,6 +28,9 @@ SUPPORTED_DISPLAYS = {
     "Pirate_Audio_old": None,
     "Display_HAT_Mini": (320, 240),
     "ST7789_Breakout": None,
+
+    # DPI displays
+    "HyperPixel_4": (800, 480),
 }
 
 MIP_DISPLAY_PARAMS = {
@@ -283,6 +286,31 @@ def detect_display(config):
         elif (p.find("PaPiRus ePaper HAT") == 0) and (v.find("Pi Supply") == 0):
             return "Papirus"
 
+    # Check for DPI displays (HyperPixel)
+    hp_fb_path = "/sys/class/graphics/fb0"
+    if os.path.exists(hp_fb_path):
+        try:
+            mode_file = os.path.join(hp_fb_path, "mode")
+            with open(mode_file) as f:
+                mode = f.read().strip()
+                # HyperPixel 4.0 can be 800x480 (landscape) or 480x800 (portrait)
+                if "800x480" in mode or "480x800" in mode:
+                    app_logger.info(f"HyperPixel 4.0 detected (framebuffer mode: {mode})")
+                    return "HyperPixel_4"
+        except OSError:
+            pass
+
+    # Fallback: check for DPI display via DRM
+    dpi_status = "/sys/class/drm/card0-DPI-1/status"
+    if os.path.exists(dpi_status):
+        try:
+            with open(dpi_status) as f:
+                if f.read().strip() == "connected":
+                    app_logger.info("DPI display (HyperPixel 4.0) detected via DRM")
+                    return "HyperPixel_4"
+        except OSError:
+            pass
+
     if config.G_DISPLAY.startswith("MIP_"):
         if not config.G_DISPLAY_PARAM.get("USE_DRM_FORCED", False):
             from .mip_display_drm import detect_sharp_drm
@@ -347,6 +375,10 @@ def init_display(config):
         
         if _SENSOR_DISPLAY:
             display = ST7789BreakoutDisplay(config, SUPPORTED_DISPLAYS[config.G_DISPLAY])
+    elif config.G_DISPLAY == "HyperPixel_4":
+        from .hyperpixel_display import HyperPixelDisplay
+
+        display = HyperPixelDisplay(config)
     elif config.G_DISPLAY == "None" and bool(config.G_DISPLAY_PARAM.get("USE_DRM", False)):
         from .mip_display_drm import detect_sharp_drm
 
