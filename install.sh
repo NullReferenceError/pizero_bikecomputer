@@ -215,12 +215,18 @@ Options:
     --spi               Enable SPI
     --services          Install systemd services
     --xwindow           Use X11 instead of framebuffer for services
-    --sharp-drm         Auto-install sharp_drm kernel module
+    --display DISPLAY   Configure display type: hyperpixel, sharp-mip
+    --sharp-drm         Auto-install sharp_drm kernel module (deprecated, use --display sharp-mip)
     -y, --yes           Answer yes to all prompts
     -h, --help          Show this help message
 
+Display Types:
+    hyperpixel          Pimoroni HyperPixel 4.0" (800x480)
+    sharp-mip           Sharp MIP display with DRM kernel module
+
 Examples:
-    $0 --pyqt6 --spi --services --sharp-drm
+    $0 --pyqt6 --spi --services --display sharp-mip
+    $0 --display hyperpixel --pyqt6 --services --xwindow
     $0 -y  # non-interactive with defaults
 EOF
     exit 0
@@ -237,6 +243,7 @@ enable_spi="false"
 install_services="false"
 install_services_use_x="false"
 install_sharp_drm_auto="false"
+install_display=""
 auto_yes="false"
 
 while [[ $# -gt 0 ]]; do
@@ -256,7 +263,8 @@ while [[ $# -gt 0 ]]; do
         --spi)            enable_spi="true" ;;
         --services)       install_services="true" ;;
         --xwindow)        install_services="true"; install_services_use_x="true" ;;
-        --sharp-drm)      install_sharp_drm_auto="true" ;;
+        --display)        install_display="$2"; shift ;;
+        --sharp-drm)      install_display="sharp-mip" ;;
         -y|--yes)         auto_yes="true" ;;
         -h|--help)        show_usage ;;
         *) echo "Unknown option: $1"; show_usage ;;
@@ -592,6 +600,46 @@ if [[ "$install_services" == "true" ]]; then
     if [[ "$install_gps" == "true" ]]; then
         sudo cp scripts/install/etc/default/gpsd /etc/default/gpsd
         sudo systemctl start gpsd
+    fi
+
+    # HyperPixel 4.0 configuration
+    if [[ "$install_display" == "hyperpixel" ]]; then
+        echo "🔧 Configuring HyperPixel 4.0 display..."
+        
+        BOOT_CONFIG_FILE="/boot/firmware/config.txt"
+        
+        if [ -f "$BOOT_CONFIG_FILE" ]; then
+            if ! grep -q "vc4-kms-dpi-hyperpixel4" "$BOOT_CONFIG_FILE"; then
+                echo "dtoverlay=vc4-kms-dpi-hyperpixel4:rotate=1" | sudo tee -a "$BOOT_CONFIG_FILE" > /dev/null
+                echo "✅ Added HyperPixel 4.0 dtoverlay to $BOOT_CONFIG_FILE"
+            else
+                echo "ℹ️  HyperPixel 4.0 dtoverlay already present"
+            fi
+        fi
+        
+        if command -v raspi-config >/dev/null 2>&1; then
+            echo "🔧 Disabling standard I2C (required by HyperPixel)..."
+            sudo raspi-config nonint do_i2c 1
+        fi
+        
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "⚠️  HyperPixel 4.0 I2C Implications"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "HyperPixel 4.0 uses all GPIO pins for the display interface."
+        echo "Standard I2C (GPIO 2/3) will be disabled."
+        echo ""
+        echo "For I2C sensors, use the QWIIC connector on the HyperPixel board"
+        echo "or the alternate I2C header (GPIO 19/26)."
+        echo ""
+        echo "⚠️  IMPORTANT: Reboot required for changes to take effect!"
+        echo ""
+    fi
+
+    # Sharp MIP configuration
+    if [[ "$install_display" == "sharp-mip" ]]; then
+        install_sharp_drm_auto="true"
     fi
 
     # Build Cython modules to avoid runtime compilation delays
