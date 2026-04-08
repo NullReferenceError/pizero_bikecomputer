@@ -215,12 +215,13 @@ Options:
     --spi               Enable SPI
     --services          Install systemd services
     --xwindow           Use X11 instead of framebuffer for services
-    --display DISPLAY   Configure display type: hyperpixel, sharp-mip
+    --display DISPLAY   Configure display type: display-hat-mini, hyperpixel, sharp-mip
     --sharp-drm         Auto-install sharp_drm kernel module (deprecated, use --display sharp-mip)
     -y, --yes           Answer yes to all prompts
     -h, --help          Show this help message
 
 Display Types:
+    display-hat-mini    Pimoroni Display HAT Mini (320x240)
     hyperpixel          Pimoroni HyperPixel 4.0" (800x480)
     sharp-mip           Sharp MIP display with DRM kernel module
 
@@ -640,6 +641,56 @@ if [[ "$install_services" == "true" ]]; then
     # Sharp MIP configuration
     if [[ "$install_display" == "sharp-mip" ]]; then
         install_sharp_drm_auto="true"
+    fi
+
+    # Display HAT Mini configuration
+    if [[ "$install_display" == "display-hat-mini" ]]; then
+        echo "🔧 Configuring Display HAT Mini..."
+        
+        BOOT_CONFIG_FILE="/boot/firmware/config.txt"
+        
+        if [ -f "$BOOT_CONFIG_FILE" ]; then
+            if ! grep -q "spi0-1fps" "$BOOT_CONFIG_FILE"; then
+                echo "dtoverlay=spi0-1fps,pin_32=9,pin_33=10" | sudo tee -a "$BOOT_CONFIG_FILE" > /dev/null
+                echo "✅ Added SPI dtoverlay for Display HAT Mini"
+            else
+                echo "ℹ️  SPI dtoverlay already present"
+            fi
+        fi
+        
+        if command -v raspi-config >/dev/null 2>&1; then
+            echo "🔧 Enabling SPI..."
+            sudo raspi-config nonint do_spi 0
+        fi
+        
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "ℹ️  Display HAT Mini Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Display HAT Mini uses SPI interface (GPIO 9/10/11)."
+        echo "GPIO buttons: A=5, B=6, X=16, Y=24"
+        echo ""
+        echo "⚠️  IMPORTANT: Reboot required for changes to take effect!"
+        echo ""
+    fi
+
+    # Auto-detect Display HAT Mini (check for SPI framebuffer)
+    echo "🔍 Checking for Display HAT Mini..."
+    display_hat_mini_detected="false"
+    if [ -e "/dev/fb1" ]; then
+        if dmesg | grep -q "st7789"; then
+            display_hat_mini_detected="true"
+        fi
+    fi
+    
+    if [[ "$display_hat_mini_detected" == "true" ]]; then
+        echo "✅ Display HAT Mini detected (/dev/fb1 with ST7789)"
+    else
+        if [ -e "/dev/spi0.0" ] || lsmod 2>/dev/null | grep -q "^spi_bcm2835"; then
+            echo "ℹ️  SPI available - Display HAT Mini may be connected"
+            echo "   Use --display display-hat-mini to configure"
+        fi
     fi
 
     # Build Cython modules to avoid runtime compilation delays
