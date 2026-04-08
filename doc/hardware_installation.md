@@ -81,7 +81,7 @@ Pros&Cons
 - Recommend if you think costs. I think it's better than PiTFT and E-ink displays.
 - <img src="https://user-images.githubusercontent.com/12926652/91795951-fe3ee280-ec59-11ea-8fc1-b5ae35a7306f.png" width=360 />
 
-### [Display HAT Mini](https://shop.pimoroni.com/products/display-hat-mini?variant=39496084717651)
+### [Display HAT Mini](https://shop.pimoroni.com/products/display-hat-mini?variant=39496084717651) (v1 and 2.0 supported)
 
 ### [Pirate Audio](https://shop.pimoroni.com/collections/pirate-audio)
 

@@ -1,2 +1,15 @@
+[GENERAL]
+display = Display_HAT_Mini
+autostop_cutoff = 4
+wheel_circumference = 2105
+gross_ave_speed = 15
+lang = EN
+auto_wifi_off = False
+
 [ANT]
-STATUS = false
+STATUS = False
+
+[DISPLAY_PARAM]
+spi_clock = 2000000
+use_backlight = False
+auto_backlight_cutoff = 10
