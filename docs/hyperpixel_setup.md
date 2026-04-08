@@ -136,21 +136,25 @@ HyperPixel 4.0 uses all GPIO pins for the display interface. This means:
 
 ### Solutions for I2C Sensors
 
-**Option 1: Use QWIIC Connector**
+**Option 1: USB I2C Adapter**
 
-The HyperPixel board has a QWIIC (STEMMA QT) connector for I2C devices. Use this for sensors like:
-- BME280/BME680 (temperature, humidity, pressure)
-- TSL2591 (light sensor)
-- GPS modules (with appropriate configuration)
+For Raspberry Pi Zero 2 W, the most reliable solution is to use a USB I2C adapter. This bypasses the GPIO limitations entirely.
 
-**Option 2: Use Alternate I2C Header**
+**Option 2: USB GPS (Recommended for GPS)**
 
-The HyperPixel board provides an alternate I2C header using GPIO 19 (SCL) and GPIO 26 (SDA). This appears as `i2c-3` on Raspberry Pi OS.
+The simplest solution for GPS with HyperPixel is to use a USB GPS module:
 
-Enable in config.txt:
-```bash
-dtoverlay=i2c3
-```
+- Works immediately without GPIO configuration
+- No conflict with HyperPixel display
+- Examples: USB GPS dongles based on u-blox, SiRF, or MediaTek chipsets
+
+**Option 3: Use a Different Pi Model**
+
+Consider using Raspberry Pi 4 or 5 which have more GPIO pins available and can potentially use the alternate I2C header more reliably.
+
+### Note on Alternate I2C
+
+The HyperPixel board provides an alternate I2C header using GPIO 19 (SCL) and GPIO 26 (SDA), and the board has a QWIIC connector. However, on Raspberry Pi Zero 2 W, enabling alternate I2C (via `dtoverlay=i2c-gpio` or similar) has been found to interfere with the display and may not work reliably. This limitation is specific to Pi Zero 2 W - other Pi models may work better.
 
 Then detect devices:
 ```bash
@@ -217,6 +221,16 @@ Or use the `--xwindow` flag when running install.sh:
    ```bash
    xinput list | grep -i touch
    ```
+
+2. Touch should work automatically via X11/Wayland
+
+### GPS not working
+
+Due to GPIO limitations with HyperPixel on Raspberry Pi Zero 2 W:
+
+1. **UART GPS** - Cannot be connected (GPIO 14/15 pins not accessible)
+2. **I2C GPS (QWIIC)** - Alternate I2C not reliably available on Pi Zero 2 W
+3. **Solution**: Use a USB GPS module instead
 
 2. Check touch rotation settings (if display is rotated)
 
