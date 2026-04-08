@@ -295,7 +295,39 @@ class Button_Config:
             },
         },
         "Pirate_Audio_old": {},
-        "Display_HAT_Mini": {},
+        # Display HAT Mini v1 and 2.0 (same GPIO button pins: 5, 6, 16, 24)
+        "Display_HAT_Mini": {
+            "MAIN": {
+                5: ("scroll_prev", "change_mode"),  # A
+                6: ("count_laps", "reset_count"),   # B
+                16: ("scroll_next", "enter_menu"),  # X
+                24: ("start_and_stop_manual", ""),  # Y
+            },
+            "MAIN_1": {
+                5: ("scroll_prev", "change_mode"),
+                6: ("count_laps", ""),
+                16: ("scroll_next", "enter_menu"),
+                24: ("brightness_control", ""),
+            },
+            "MENU": {
+                5: ("press_shift_tab", ""),
+                6: ("back_menu", ""),
+                16: ("press_tab", ""),
+                24: ("press_space", ""),
+            },
+            "MAP": {
+                5: ("scroll_prev", ""),
+                6: ("map_zoom_minus", ""),
+                16: ("scroll_next", "enter_menu"),
+                24: ("map_zoom_plus", "change_map_overlays"),
+            },
+            "COURSE_PROFILE": {
+                5: ("scroll_prev", ""),
+                6: ("map_zoom_minus", ""),
+                16: ("scroll_next", "enter_menu"),
+                24: ("map_zoom_plus", ""),
+            },
+        },
         # MIP displays with custom GPIO buttons
         "MIP_Sharp_mono_400x240": {
             "MAIN": {},
@@ -330,7 +362,7 @@ class Button_Config:
         for k2 in ioexpander_change_keys:
             b[ioexpander_change_keys[k2]] = b.pop(k2)
             
-    G_BUTTON_DEF["Display_HAT_Mini"] = copy.deepcopy(G_BUTTON_DEF["Pirate_Audio"])
+    # Display_HAT_Mini already has explicit button definitions above
     G_BUTTON_DEF["Pirate_Audio_old"] = copy.deepcopy(G_BUTTON_DEF["Pirate_Audio"])
     for k in G_BUTTON_DEF["Pirate_Audio_old"]:
         # Y key is GPIO 20, not 24
