@@ -335,8 +335,12 @@ def init_display(config):
         return display
 
     auto_detect = detect_display(config)
+    
+    app_logger.info(f"DEBUG: setting.conf G_DISPLAY = '{config.G_DISPLAY}', auto_detect = '{auto_detect}'")
 
-    if auto_detect is not None:
+    # Only use auto-detected display if user hasn't specified one in setting.conf
+    # "None" is the default, so use auto-detect only when G_DISPLAY is still "None"
+    if auto_detect is not None and config.G_DISPLAY == "None":
         config.G_DISPLAY = auto_detect
 
     if config.G_DISPLAY == "PiTFT":
