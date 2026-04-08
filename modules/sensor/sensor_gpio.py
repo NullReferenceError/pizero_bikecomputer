@@ -85,6 +85,8 @@ class SensorGPIO(Sensor):
         try:
             self._init_gpiod(button_keys, use_pullup)
             app_logger.info(f"[GPIO] Initialized button monitoring on pins: {button_keys}")
+            # Add debug to verify edge detection is working
+            app_logger.debug(f"[GPIO] Press detection enabled for all buttons")
         except Exception as e:
             app_logger.error(f"Failed to initialize GPIO: {e}")
             self._line_request = None
