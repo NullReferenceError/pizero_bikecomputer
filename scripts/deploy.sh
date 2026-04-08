@@ -54,8 +54,13 @@ upload_repo() {
         --exclude='__pycache__' \
         --exclude='*.pyc' \
         --exclude='.venv' \
-        --exclude='logs/*.log' \
+        --exclude='logs/' \
+        --exclude='*.log' \
         --exclude='*.so' \
+        --exclude='setting.conf' \
+        --exclude='setting.conf.*' \
+        --exclude='state.pickle' \
+        --exclude='layout.yaml' \
         "$LOCAL_REPO/" "$PI_HOST:$PI_PATH/"
     echo "✅ Upload complete"
 }
