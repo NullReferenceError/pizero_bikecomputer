@@ -353,6 +353,53 @@ Here is another example.
 - ANT+ USB dongle
 
 
+### Custom button wiring
+
+The Button SHIM above is nearly impossible to find in US markets.
+You can accomplish largely the same thing by wiring the GPIO buttons on your own, using anything as simple as any momentary buttons, IE:
+
+- [SparkFun Tactile Buttons](https://www.sparkfun.com/tactile-button-assortment.html)
+
+If you choose to go that way, you need to wire the GPIO buttons as follows:
+
+
+### Default GPIO Button Assignments
+
+| BCM GPIO | Button | Short Press | Long Press |
+|----------|--------|-------------|------------|
+| **GPIO 5** | Button A | scroll_prev | change_mode |
+| **GPIO 6** | Button B | count_laps | reset_count |
+| **GPIO 16** | Button X | scroll_next | enter_menu |
+| **GPIO 24** | Button Y | start_and_stop_manual | - |
+
+**Reference:** `modules/button_config.py` line 6
+
+### Basic Button Connection
+
+**With internal pull-up (recommended - simpler wiring):**
+```
+GPIO Pin ── Button ── GND
+```
+
+**With external pull-up resistor:**
+```
+3.3V ──[10kΩ]── GPIO Pin ── Button ── GND
+```
+
+**Notes:** 
+- Most displays (PiTFT, Pirate Audio, MIP Sharp) use internal pull-ups, so external resistors are NOT needed
+- Only Papirus requires external pull-up resistors
+- Buttons are active-LOW: pressed = GPIO reads LOW (0V)
+
+### Active Low vs Active High
+
+All buttons in pizero_bikecomputer are **active LOW**:
+- Button not pressed: GPIO reads HIGH (3.3V via pull-up)
+- Button pressed: GPIO reads LOW (connected to ground)
+
+
+
+
 # Bicycle mounting
 
 Attach the case to the handlebar and connect it to a battery in a top tube bag. There is no switch, so the pizero_bikecomputer will start the moment you connect the battery.
