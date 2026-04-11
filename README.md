@@ -144,7 +144,7 @@ USB dongle is required if using ANT+ sensors.
 |:-|:-|:-|
 | GPS module | Yes | UART GPS module(via GPSd) and I2C GPS are supported. |
 | Positioning from smartphones | Yes | Using the Android app [GadgetBridge](https://gadgetbridge.org). |
-| Map | Yes | Support raster map tile format like OSM (z/x/y.png or jpg). So, offline map is available with local caches. Also, raster .mbtile format is supported. |
+| Map | Yes | Support raster map tile format like OSM (z/x/y.png or jpg). Offline maps available with local caches. Includes offline map tile pre-download tool for preparing coverage before rides. Also supports raster .mbtile format. |
 | Course on the map| Yes | Local `.tcx` files, cloud courses from Ride with GPS, and routes shared from Google Maps on Android via Bluetooth. |
 | Search route | Yes | Google Directions API |
 | Course profile | Yes |  |
@@ -188,6 +188,28 @@ In Japan, [気象庁降水ナウキャスト](https://www.jma.go.jp/bosai/nowc/)
 
 <img src ="https://user-images.githubusercontent.com/12926652/205563333-549cf4dc-abbd-4392-9233-b8391687e0bc.png" width=400/> 
 
+### Offline Map Tile Pre-Download
+
+Pi Zero Bikecomputer includes a command-line tool for pre-downloading map tiles, enabling navigation in areas without cellular coverage.
+
+**Quick Start:**
+```bash
+# Download tiles for 50-mile radius around a location
+python scripts/download_map_tiles.py \
+  --center 40.7128,-74.0060 \
+  --radius 50 \
+  --zoom-range 12-15
+```
+
+**Features:**
+- Download tiles within a radius from any center point
+- Specify zoom levels for detail control (z=12-15 recommended for cycling)
+- Storage estimation before downloading
+- Progress tracking with speed and tile count
+- Update mode to refresh old tiles
+- Works on both Pi Zero and desktop machines
+
+**See the [Offline Map Tiles Guide](doc/offline_map_tiles.md) for detailed documentation, examples, and storage requirements.**
 
 ## GUI
 
