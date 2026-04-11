@@ -486,6 +486,10 @@ Examples:
     class SimpleConfig:
         def __init__(self):
             self.G_MAP_CONFIG = {}
+            self.G_HEATMAP_OVERLAY_MAP_CONFIG = {}
+            self.G_RAIN_OVERLAY_MAP_CONFIG = {}
+            self.G_WIND_OVERLAY_MAP_CONFIG = {}
+            self.G_DEM_MAP_CONFIG = {}
     
     config = SimpleConfig()
     add_map_config(config)
