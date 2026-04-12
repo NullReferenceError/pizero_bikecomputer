@@ -328,14 +328,29 @@ async def download_tiles_for_area(
         parallel_downloads=parallel
     )
     
+    if not quiet:
+        print()
+        print(colored("═" * 70, Colors.OKCYAN))
+        print(colored("  Starting Download", Colors.OKCYAN + Colors.BOLD))
+        print(colored("═" * 70, Colors.OKCYAN))
+        print(f"  Rate limit: {rate_limit} tiles/second")
+        print(f"  Parallel downloads: {parallel}")
+        print()
+    
     # Download tiles for each zoom level
     for zoom in range(zoom_range[0], zoom_range[1] + 1):
         if not quiet:
             print()
             print(colored(f"Downloading tiles for zoom level {zoom}...", Colors.OKCYAN))
+            import time
+            time.sleep(0.1)  # Brief pause so user sees the message
         
         # Calculate tiles for this zoom level
         tiles = get_tiles_in_radius(center_lat, center_lon, radius_km, zoom)
+        
+        if not quiet:
+            print(f"  Calculated {len(tiles)} tiles for this zoom level")
+            print(f"  Starting download...")
         
         # Set up progress tracker
         progress_callback = ProgressTracker(zoom, quiet)
@@ -348,6 +363,11 @@ async def download_tiles_for_area(
             force=force,
             progress_callback=progress_callback
         )
+        
+        if not quiet:
+            print(f"  Downloaded: {results.get('downloaded', 0)}, "
+                  f"Skipped: {results.get('skipped', 0)}, "
+                  f"Failed: {results.get('failed', 0)}")
         
         if not quiet:
             print()  # New line after progress bar
@@ -456,6 +476,11 @@ Examples:
         action='store_true',
         help='Detailed logging output'
     )
+    parser.add_argument(
+        '--yes',
+        action='store_true',
+        help='Automatically confirm download (skip confirmation prompt)'
+    )
     
     args = parser.parse_args()
     
@@ -510,8 +535,8 @@ Examples:
             print(colored("  Dry run mode - no tiles downloaded", Colors.WARNING))
         sys.exit(0)
     
-    # Confirm unless quiet
-    if not args.quiet and not args.force:
+    # Confirm unless quiet, yes flag, or force
+    if not args.quiet and not args.force and not args.yes:
         try:
             response = input(colored("  Continue? [y/N]: ", Colors.BOLD))
             if response.lower() != 'y':
@@ -520,6 +545,9 @@ Examples:
         except KeyboardInterrupt:
             print("\n  Cancelled.")
             sys.exit(0)
+        except EOFError:
+            print("\n  Error: Cannot read input. Use --yes flag to skip confirmation.")
+            sys.exit(1)
     
     # Download tiles
     try:
