@@ -26,14 +26,16 @@ class RateLimiter:
     Different map sources have different rate limits.
     """
     
-    def __init__(self, requests_per_second: float = 2.0):
+    def __init__(self, requests_per_second: float = 2.0, max_burst: int = 10):
         """
         Initialize rate limiter.
         
         Args:
             requests_per_second: Maximum requests allowed per second
+            max_burst: Maximum tokens that can accumulate (allows bursts)
         """
         self.rate = requests_per_second
+        self.max_burst = max_burst
         self.tokens = requests_per_second
         self.last_update = time.monotonic()
         self.lock = asyncio.Lock()
@@ -50,9 +52,9 @@ class RateLimiter:
                 now = time.monotonic()
                 elapsed = now - self.last_update
                 
-                # Refill tokens based on elapsed time
+                # Refill tokens based on elapsed time (capped at max_burst)
                 self.tokens = min(
-                    self.rate,
+                    self.max_burst,
                     self.tokens + elapsed * self.rate
                 )
                 self.last_update = now
@@ -248,12 +250,15 @@ class BulkTileDownloader:
         await self.rate_limiter.acquire(len(batch))
         
         # Download files
+        # Note: limit is a boolean flag (True = 1 concurrent, False = 100 concurrent)
+        # Since our batch size matches parallel_downloads, we can use limit=False
+        # to allow all tiles in the batch to download concurrently
         try:
             results = await download_files(
                 urls=urls,
                 headers=headers,
                 save_paths=save_paths,
-                limit=self.parallel_downloads
+                limit=False  # Allow concurrent downloads within batch
             )
             
             # Count successes and track statistics
@@ -336,7 +341,8 @@ class BulkTileDownloader:
         )
         
         # Download in batches
-        batch_size = 50  # Download 50 tiles at a time
+        # Batch size matches parallel downloads for proper concurrency control
+        batch_size = max(self.parallel_downloads, 4)  # At least 4, usually 4-8
         for i in range(0, len(tiles_to_download), batch_size):
             batch = tiles_to_download[i:i + batch_size]
             await self._download_batch(batch, progress_callback)
