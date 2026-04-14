@@ -1765,10 +1765,15 @@ class SensorI2C(Sensor):
             import board
             from adafruit_bme280 import advanced as adafruit_bme280
 
-            # for Waveshare Environment Sensor HAT
-            self.sensor_bme280 = adafruit_bme280.Adafruit_BME280_I2C(
-                board.I2C(), address=0x76
-            )
+            # Try address 0x76 first (Waveshare), then 0x77
+            try:
+                self.sensor_bme280 = adafruit_bme280.Adafruit_BME280_I2C(
+                    board.I2C(), address=0x76
+                )
+            except:
+                self.sensor_bme280 = adafruit_bme280.Adafruit_BME280_I2C(
+                    board.I2C(), address=0x77
+                )
             self.sensor_bme280.mode = adafruit_bme280.MODE_NORMAL
             # STANDBY_TC_0_5, STANDBY_TC_10, STANDBY_TC_20, STANDBY_TC_62_5,
             # STANDBY_TC_125, STANDBY_TC_250, STANDBY_TC_500, STANDBY_TC_1000,
