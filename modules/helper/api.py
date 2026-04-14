@@ -515,11 +515,18 @@ class api:
             upload_result = await post(
                 self.config.G_STRAVA_API_URL["UPLOAD"], headers=headers, data=data
             )
+            app_logger.info(f"Strava upload response: {upload_result}")
             if not upload_result:
                 app_logger.error("strava upload failed (no response)")
                 return False
+            if "upload_id" in upload_result:
+                app_logger.info(f"Strava upload_id: {upload_result['upload_id']}")
             if "status" in upload_result:
                 app_logger.info(upload_result["status"])
+            if "activity_id" in upload_result:
+                app_logger.info(f"Strava activity_id: {upload_result['activity_id']}")
+            if "error" in upload_result:
+                app_logger.error(f"Strava upload error: {upload_result['error']}")
 
         return True
 
