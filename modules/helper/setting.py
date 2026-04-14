@@ -43,6 +43,8 @@ class Setting:
                 self.config.G_FONT_FILE = c["FONT_FILE"]
             if "AUTO_WIFI_OFF" in c:
                 self.config.G_AUTO_WIFI_OFF = c.getboolean("AUTO_WIFI_OFF")
+            if "UPLOAD_FILE" in c:
+                self.config.G_UPLOAD_FILE = c["UPLOAD_FILE"]
 
         if "BT" in self.config_parser:
             c = self.config_parser["BT"]
