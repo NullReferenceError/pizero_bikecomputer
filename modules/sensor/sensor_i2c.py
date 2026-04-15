@@ -1465,7 +1465,11 @@ class SensorI2C(Sensor):
                 or sp.get("MS5637")
                 or sp.get("BMP581")
             ):
-                self.sensor["i2c_baro_temp"].read()
+                try:
+                    self.sensor["i2c_baro_temp"].read()
+                except AttributeError:
+                    # BME280 doesn't have read() method - properties accessed directly
+                    pass
             get_temperature()
             self.values["pressure_raw"] = self.sensor["i2c_baro_temp"].pressure
             if sp.get("BME280"):
