@@ -47,3 +47,21 @@ gmon.out
 .lgd-nfy0
 AGENTS.md
 CLAUDE.md
+
+# Runtime and generated data
+/downloaded_rides/
+/pizero_bikecomputer/
+*.gpx
+*.db-journal
+
+# Test/temp scripts
+/export_april14_ride.py
+/strava_reauth.py
+/test_bugfixes.py
+/upload_ride.py
+/upload_ride_simple.py
+
+# Documentation files (temporary/work-in-progress)
+/DEPLOY_SCRIPT_CHANGES.md
+/strava_reauth_helper.md
+/docs/i2c_sensor_setup.md
