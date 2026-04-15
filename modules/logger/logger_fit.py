@@ -257,6 +257,33 @@ class LoggerFit(Logger):
         )
         if res:
             self.config.G_UPLOAD_FILE = filename
+            # Save to setting.conf to persist
+            try:
+                setting_file = "setting.conf"
+                with open(setting_file, "r") as f:
+                    lines = f.readlines()
+                # Check if upload_file already exists
+                upload_found = any("upload_file" in line for line in lines)
+                # Update or add
+                new_lines = []
+                for line in lines:
+                    if line.strip().startswith("upload_file"):
+                        new_lines.append(f"upload_file = {filename}\n")
+                    else:
+                        new_lines.append(line)
+                if not upload_found:
+                    # Add after [GENERAL] section
+                    new_lines2 = []
+                    for line in new_lines:
+                        new_lines2.append(line)
+                        if line.strip() == "[GENERAL]":
+                            new_lines2.append(f"upload_file = {filename}\n")
+                    new_lines = new_lines2
+                with open(setting_file, "w") as f:
+                    f.writelines(new_lines)
+            except Exception as e:
+                import app_logger
+                app_logger.warning(f"Could not save upload_file to setting.conf: {e}")
         return res
 
     def write_log_python(self, filename, start_date, end_date):
