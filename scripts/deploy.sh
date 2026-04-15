@@ -61,6 +61,14 @@ upload_repo() {
         --exclude='setting.conf.*' \
         --exclude='state.pickle' \
         --exclude='layout.yaml' \
+        --exclude='downloaded_rides/' \
+        --exclude='pizero_bikecomputer/' \
+        --exclude='courses/' \
+        --exclude='maptile/' \
+        --exclude='*.db' \
+        --exclude='*.db-journal' \
+        --exclude='*.fit' \
+        --exclude='*.gpx' \
         "$LOCAL_REPO/" "$PI_HOST:$PI_PATH/"
     echo "✅ Upload complete"
 }
