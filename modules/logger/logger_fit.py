@@ -4,6 +4,12 @@ import struct
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Import for setting.conf path resolution (Bug Fix #2)
+try:
+    from modules.helper.setting import Setting
+except ImportError:  # pragma: no cover
+    from ..helper.setting import Setting
+
 if __name__ == "__main__" and __package__ is None:
     # Allow running as a script by adding repo root to sys.path.
     import sys
@@ -246,6 +252,12 @@ class LoggerFit(Logger):
         return self.write_log_python(filename, start_date, end_date)
 
     def write_log_cython(self, filename, start_date, end_date):
+        # Bug Fix #3: Validate filename has .fit extension
+        if not filename.endswith('.fit'):
+            app_logger.warning(
+                f"FIT filename should end with .fit extension: {filename}"
+            )
+        
         if write_log_cython_func is None:
             return False
 
@@ -259,7 +271,8 @@ class LoggerFit(Logger):
             self.config.G_UPLOAD_FILE = filename
             # Save to setting.conf to persist
             try:
-                setting_file = "setting.conf"
+                # Bug Fix #2: Use Setting.config_file instead of hardcoded path
+                setting_file = Setting.config_file
                 with open(setting_file, "r") as f:
                     lines = f.readlines()
                 # Check if upload_file already exists
@@ -282,11 +295,16 @@ class LoggerFit(Logger):
                 with open(setting_file, "w") as f:
                     f.writelines(new_lines)
             except Exception as e:
-                import app_logger
                 app_logger.warning(f"Could not save upload_file to setting.conf: {e}")
         return res
 
     def write_log_python(self, filename, start_date, end_date):
+        # Bug Fix #3: Validate filename has .fit extension
+        if not filename.endswith('.fit'):
+            app_logger.warning(
+                f"FIT filename should end with .fit extension: {filename}"
+            )
+        
         # make sure crc16 is imported is we resolve to using python code
         try:
             from .cython.crc16_p import crc16
@@ -480,6 +498,35 @@ class LoggerFit(Logger):
         # success
         self.reset()
         self.config.G_UPLOAD_FILE = filename
+        
+        # Bug Fix #1: Save to setting.conf to persist (same as Cython version)
+        try:
+            # Bug Fix #2: Use Setting.config_file instead of hardcoded path
+            setting_file = Setting.config_file
+            with open(setting_file, "r") as f:
+                lines = f.readlines()
+            # Check if upload_file already exists
+            upload_found = any("upload_file" in line for line in lines)
+            # Update or add
+            new_lines = []
+            for line in lines:
+                if line.strip().startswith("upload_file"):
+                    new_lines.append(f"upload_file = {filename}\n")
+                else:
+                    new_lines.append(line)
+            if not upload_found:
+                # Add after [GENERAL] section
+                new_lines2 = []
+                for line in new_lines:
+                    new_lines2.append(line)
+                    if line.strip() == "[GENERAL]":
+                        new_lines2.append(f"upload_file = {filename}\n")
+                new_lines = new_lines2
+            with open(setting_file, "w") as f:
+                f.writelines(new_lines)
+        except Exception as e:
+            app_logger.warning(f"Could not save upload_file to setting.conf: {e}")
+        
         return True
 
     def write_definition(self, local_message_num):
