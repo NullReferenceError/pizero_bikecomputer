@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import math
 import asyncio
 import time
@@ -6,8 +6,8 @@ import time
 import numpy as np
 
 from modules.app_logger import app_logger
-from modules.utils.geo import get_track_str
-from modules.utils.network import detect_network
+from modules.helper.network.http_client import get_json
+from modules.utils.geo import get_dist_on_earth, get_track_str
 from .sensor import Sensor
 from .i2c_utils import i2c_addr_present as _i2c_addr_present
 
@@ -21,13 +21,11 @@ except ImportError:
 if _SENSOR_I2C:
     app_logger.info("  I2C")
 
-_SENSOR_MAG_DECLINATION = False
-try:
-    from magnetic_field_calculator import MagneticFieldCalculator
-
-    _SENSOR_MAG_DECLINATION = True
-except ImportError:
-    pass
+_MAG_DECLINATION_FETCH_TIMEOUT_SEC = 5.0
+_MAG_DECLINATION_CACHE_DISTANCE_CUTOFF_M = 50000.0
+_MAG_DECLINATION_API_URL = (
+    "https://geomag.bgs.ac.uk/web_service/GMModels/wmm/2025/"
+)
 
 # acc
 X = 0
@@ -142,6 +140,7 @@ class SensorI2C(Sensor):
     # for altitude
     sealevel_pa = 1013.25
     sealevel_temp = 273.15 + 20  # The temperature is fixed at 20 degrees Celsius.
+    sealevel_altitude_calibrated = False
     total_ascent_threshold = 2  # [m]
 
     # for vertical speed
@@ -154,6 +153,10 @@ class SensorI2C(Sensor):
 
     def sensor_init(self):
         self.reset()
+        self.is_mag_declination_modified = False
+        self._mag_declination_task = None
+        self._mag_declination_fetch_started = False
+        self._mag_declination_cache = self._load_mag_declination_cache()
 
         if not _SENSOR_I2C:
             return
@@ -174,10 +177,16 @@ class SensorI2C(Sensor):
         
         #self.reset()
 
-        self.sealevel_pa = self.config.state.get_value("sealevel_pa", self.sealevel_pa)
-        self.sealevel_temp = self.config.state.get_value(
-            "sealevel_temp", self.sealevel_temp
-        )
+        restored_sealevel_pa = self.config.state.get_value("sealevel_pa", None)
+        if restored_sealevel_pa is not None:
+            self.sealevel_pa = restored_sealevel_pa
+
+        restored_sealevel_temp = self.config.state.get_value("sealevel_temp", None)
+        if restored_sealevel_temp is not None:
+            self.sealevel_temp = restored_sealevel_temp
+
+        if restored_sealevel_pa is not None or restored_sealevel_temp is not None:
+            self.sealevel_altitude_calibrated = True
 
         if not self.config.G_IMU_CALIB["MAG"]:
             for k in ("mag_min", "mag_max"):
@@ -471,10 +480,266 @@ class SensorI2C(Sensor):
     
     def quit(self):
         self.quit_status = True
+        if self._mag_declination_task is not None:
+            self._mag_declination_task.cancel()
         if self.available_sensors["BUTTON"].get("MCP23008", False):
             self.sensor_mcp23008.quit()
         if self.config.G_IMU_CALIB["MAG"]:
             np.savetxt('log/raw_mags.csv', self.raw_mags, delimiter=',', fmt='%.6f')
+
+    @staticmethod
+    def _parse_datetime_value(value):
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            dt = value
+        else:
+            text = str(value).strip()
+            if not text:
+                return None
+            if text.endswith("Z"):
+                text = f"{text[:-1]}+00:00"
+            try:
+                dt = datetime.fromisoformat(text)
+            except ValueError:
+                return None
+
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    @staticmethod
+    def _is_valid_number(value):
+        if value is None:
+            return False
+        try:
+            return bool(np.isfinite(value))
+        except TypeError:
+            return False
+
+    def _load_mag_declination_cache(self):
+        state = getattr(self.config, "state", None)
+        if state is None:
+            return None
+
+        declination = state.get_value("mag_declination_deg", None)
+        updated_at = self._parse_datetime_value(
+            state.get_value("mag_declination_updated_at", None)
+        )
+        lat = state.get_value("mag_declination_lat", None)
+        lon = state.get_value("mag_declination_lon", None)
+
+        if (
+            not self._is_valid_number(declination)
+            or updated_at is None
+            or not self._is_valid_number(lat)
+            or not self._is_valid_number(lon)
+        ):
+            return None
+
+        return {
+            "deg": float(declination),
+            "updated_at": updated_at,
+            "lat": float(lat),
+            "lon": float(lon),
+        }
+
+    def _store_mag_declination_cache(self, declination, lat, lon, gps_time):
+        state = getattr(self.config, "state", None)
+        if state is None:
+            return
+
+        updated_at = gps_time.astimezone(timezone.utc).isoformat()
+        state.set_value("mag_declination_deg", float(declination))
+        state.set_value("mag_declination_updated_at", updated_at)
+        state.set_value("mag_declination_lat", float(lat))
+        state.set_value("mag_declination_lon", float(lon), force_apply=True)
+        self._mag_declination_cache = {
+            "deg": float(declination),
+            "updated_at": self._parse_datetime_value(updated_at),
+            "lat": float(lat),
+            "lon": float(lon),
+        }
+
+    def _is_mag_declination_position_valid(
+        self, gps_sensor, lat, lon, mode, status, dop, satellites
+    ):
+        if (
+            not self._is_valid_number(lat)
+            or not self._is_valid_number(lon)
+            or abs(float(lat)) > 90
+            or abs(float(lon)) > 180
+        ):
+            return False
+
+        try:
+            mode_value = int(mode)
+        except (TypeError, ValueError):
+            return False
+        if mode_value < 3:
+            return False
+
+        if len(dop) != 3:
+            return False
+        cutoff = getattr(gps_sensor, "valid_cutoff_dof", (99.0, 99.0, 99.0))
+        for value, value_cutoff in zip(dop, cutoff):
+            if not self._is_valid_number(value) or float(value) >= value_cutoff:
+                return False
+
+        try:
+            used_sats = int(satellites[0])
+        except (TypeError, ValueError):
+            return False
+
+        status_ok = False
+        if gps_sensor is not None and hasattr(gps_sensor, "check_3DGPS_FIX_status"):
+            status_ok = gps_sensor.check_3DGPS_FIX_status(status)
+        if not status_ok and used_sats <= 3:
+            return False
+
+        return True
+
+    def _get_mag_declination_context(self):
+        logger = getattr(self.config, "logger", None)
+        sensor_core = getattr(logger, "sensor", None)
+        if sensor_core is None:
+            return None
+
+        gps_sensor = getattr(sensor_core, "sensor_gps", None)
+        gps_values = getattr(sensor_core, "values", {}).get("GPS")
+        if not isinstance(gps_values, dict):
+            return None
+
+        lat = gps_values.get("lat")
+        lon = gps_values.get("lon")
+        dop = (
+            gps_values.get("pdop"),
+            gps_values.get("hdop"),
+            gps_values.get("vdop"),
+        )
+        satellites = (
+            gps_values.get("used_sats"),
+            gps_values.get("total_sats"),
+        )
+        if not self._is_mag_declination_position_valid(
+            gps_sensor,
+            lat,
+            lon,
+            gps_values.get("mode"),
+            gps_values.get("status"),
+            dop,
+            satellites,
+        ):
+            return None
+
+        gps_time = self._parse_datetime_value(gps_values.get("time"))
+        if gps_time is None or gps_time.year < 2000:
+            return None
+
+        return {
+            "lat": float(lat),
+            "lon": float(lon),
+            "gps_time": gps_time,
+        }
+
+    def _is_mag_declination_cache_hit(self, cache, lat, lon, gps_time):
+        if cache is None:
+            return False
+
+        if gps_time.strftime("%Y-%m") != cache["updated_at"].strftime("%Y-%m"):
+            return False
+
+        distance = get_dist_on_earth(cache["lon"], cache["lat"], lon, lat)
+        return distance <= _MAG_DECLINATION_CACHE_DISTANCE_CUTOFF_M
+
+    def _apply_mag_declination(self, declination):
+        self.config.G_IMU_MAG_DECLINATION = float(declination)
+        self.is_mag_declination_modified = True
+
+    def _schedule_mag_declination_update(self):
+        if self.is_mag_declination_modified:
+            return
+
+        context = self._get_mag_declination_context()
+        if context is None:
+            return
+
+        cache = getattr(self, "_mag_declination_cache", None)
+        if self._is_mag_declination_cache_hit(
+            cache, context["lat"], context["lon"], context["gps_time"]
+        ):
+            self._apply_mag_declination(cache["deg"])
+            app_logger.info(
+                "mag declination cache hit: %.3f deg", cache["deg"]
+            )
+            return
+
+        if getattr(self, "_mag_declination_fetch_started", False):
+            return
+
+        self._mag_declination_fetch_started = True
+        app_logger.info("mag declination cache miss")
+        self._mag_declination_task = asyncio.create_task(
+            self._update_mag_declination_async(
+                context["lat"], context["lon"], context["gps_time"]
+            )
+        )
+
+    async def _fetch_mag_declination_from_bgs(self, lat, lon, gps_time):
+        response = await get_json(
+            _MAG_DECLINATION_API_URL,
+            params={
+                "latitude": f"{lat:.8f}",
+                "longitude": f"{lon:.8f}",
+                "altitude": "0",
+                "date": gps_time.date().isoformat(),
+                "format": "json",
+            },
+            timeout=_MAG_DECLINATION_FETCH_TIMEOUT_SEC,
+        )
+        if response is None:
+            raise RuntimeError("failed to fetch magnetic declination")
+
+        try:
+            return float(
+                response["geomagnetic-field-model-result"]["field-value"][
+                    "declination"
+                ]["value"]
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("invalid magnetic declination response") from exc
+
+    async def _update_mag_declination_async(self, lat, lon, gps_time):
+        cache = getattr(self, "_mag_declination_cache", None)
+        app_logger.info("mag declination fetch started")
+
+        try:
+            declination = await self._fetch_mag_declination_from_bgs(
+                lat,
+                lon,
+                gps_time,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if cache is not None:
+                self._apply_mag_declination(cache["deg"])
+                app_logger.warning(
+                    "mag declination fetch timed out/failed; using stale cache: %s",
+                    exc,
+                )
+            else:
+                self.is_mag_declination_modified = True
+                app_logger.warning(
+                    "mag declination fetch timed out/failed: %s",
+                    exc,
+                )
+            return
+
+        self._apply_mag_declination(declination)
+        self._store_mag_declination_cache(declination, lat, lon, gps_time)
+        app_logger.info("mag declination fetch succeeded: %.3f deg", declination)
 
     async def update(self):
         # timestamp
@@ -968,28 +1233,7 @@ class SensorI2C(Sensor):
         )
 
     def calc_heading(self, yaw):
-
-        # true north modification
-        if (
-            _SENSOR_MAG_DECLINATION
-            and not self.is_mag_declination_modified
-            and self.config.logger is not None
-            and detect_network()
-        ):
-            v = self.config.logger.sensor.values["GPS"]
-            if not np.any(np.isnan([v["lat"], v["lon"]])):
-                calculator = MagneticFieldCalculator()
-                try:
-                    result = calculator.calculate(latitude=v["lat"], longitude=v["lon"])
-                    self.config.G_IMU_MAG_DECLINATION = int(
-                        result["field-value"]["declination"]["value"]
-                    )
-                    app_logger.info(
-                        f"_SENSOR_MAG_DECLINATION: {self.config.G_IMU_MAG_DECLINATION}"
-                    )
-                    self.is_mag_declination_modified = True
-                except:
-                    pass
+        self._schedule_mag_declination_update()
 
         if np.isnan(yaw):
             if self.motion_sensor["MAG"]:
@@ -1290,9 +1534,10 @@ class SensorI2C(Sensor):
                     altitude_delta = self.vspeed_array[-1] - self.vspeed_array[i]
                     self.values["vertical_speed"] = altitude_delta / time_delta
 
-    async def update_sealevel_pa(self, alt):
+    async def update_sealevel_pa(self, alt, force=False):
         if (
-            np.isnan(self.values["pressure"])
+            (not force and self.sealevel_altitude_calibrated)
+            or np.isnan(self.values["pressure"])
             or np.isnan(self.values["temperature"])
             or np.isnan(alt)
         ):
@@ -1355,6 +1600,8 @@ class SensorI2C(Sensor):
             f"sealevel temperature: {round(self.sealevel_temp - 273.15, 1)} C"
         )
         app_logger.info(f"sealevel pressure: {round(self.sealevel_pa, 3)} hPa")
+
+        self.sealevel_altitude_calibrated = True
 
     def lp_filter(self, key, filter_val):
         if key not in self.values:
