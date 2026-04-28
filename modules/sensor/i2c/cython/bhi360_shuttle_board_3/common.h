@@ -69,17 +69,7 @@ extern "C" {
 #define BHI3_USE_GPIOD 1
 #endif
 
-#include "bhi360.h"
-#include "bhi360_defs.h"
-#include "bhi360_activity_param.h"
-#include "bhi360_bsec_param.h"
-#include "bhi360_bsx_algo_param.h"
-#include "bhi360_head_orientation_param.h"
-#include "bhi360_multi_tap_param.h"
-#include "bhi360_phy_sensor_ctrl_param.h"
-#include "bhi360_system_param.h"
-#include "bhi360_virtual_sensor_conf_param.h"
-#include "bhi360_virtual_sensor_info_param.h"
+#include "bhi3_compat.h"
 
 #include "intf_codes.h"
 

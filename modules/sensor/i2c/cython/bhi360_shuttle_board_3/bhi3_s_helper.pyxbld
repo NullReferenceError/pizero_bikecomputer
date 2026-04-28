@@ -7,7 +7,14 @@ def make_ext(modname, pyxfilename):
     base_dir = os.path.dirname(os.path.abspath(pyxfilename))
 
     i2c_sensors = {
-        'bhi3_s': {
+        # BHI385 is checked first; falls back to BHI360 if libbhi385.so is absent.
+        'bhi3_s_385': {
+            'src': os.path.join(base_dir, 'bhi3_s.c'),
+            'lib': 'libbhi385.so',
+            #'macro': [('USE_BHI3_S', '1'), ('USE_BHI385', '1')],  # for SPI
+            'macro': [('USE_BHI3_S', '1'), ('USE_BHI385', '1'), ('BHI3_USE_I2C', '1')],  # for I2C
+        },
+        'bhi3_s_360': {
             'src': os.path.join(base_dir, 'bhi3_s.c'),
             'lib': 'libbhi360.so',
             #'macro': [('USE_BHI3_S', '1')],  # for SPI

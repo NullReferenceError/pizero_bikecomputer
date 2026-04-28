@@ -2,8 +2,12 @@
 
 #ifdef USE_BHI3_S
 
+#ifdef USE_BHI385
+#include "bhi385/Bosch_Shuttle3_BHI385_BMM350_BMP58X_BME688_bsxsam_ndof.fw.h"
+#else
 //#include "bhi360/Bosch_Shuttle3_BHI360_BMM350C_BME688_IAQ.fw.h"
 #include "bhi360/Bosch_Shuttle3_BHI360_BMM350C_BMP580_BME688.fw.h"
+#endif
 
 #include <errno.h>
 #include <math.h>

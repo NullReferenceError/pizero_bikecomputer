@@ -15,13 +15,6 @@ extern "C" {
 
 #include "common.h"
 
-#include "bhi360.h"
-#include "bhi360_parse.h"
-#include "bhi360_virtual_sensor_conf_param.h"
-#include "bhi360_event_data.h"
-
-#include "common.h"
-
 typedef struct bhi3_s_data
 {
     /* Acceleration: raw -> accuracy -> filtered -> norm */

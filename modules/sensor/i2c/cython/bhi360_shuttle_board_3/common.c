@@ -42,7 +42,9 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+#ifndef USE_BHI385
 #include "bhi360_parse.h"
+#endif
 
 #ifndef BHI3_USE_I2C
 static void my_spi_open(const char *device);
@@ -62,7 +64,7 @@ static uint32_t spi_speed = 1000000; // 1MHz
 #define BHI3_GPIOD_DEVICE "/dev/gpiochip4"
 #endif
 
-static int fd = 0;
+static int fd = -1;
 #if !defined(BHI3_USE_PIGPIO)
 static int spi_fd = -1;
 #endif
@@ -157,6 +159,12 @@ bool bhi3_wait_for_interrupt(uint32_t timeout_ms)
         return false;
     }
 
+    /* Host IRQ is level-triggered by default, so data can already be pending. */
+    if (get_interrupt_status())
+    {
+        return true;
+    }
+
     int64_t timeout_ns = -1;
 
     if (timeout_ms > 0U)
@@ -187,7 +195,7 @@ bool bhi3_wait_for_interrupt(uint32_t timeout_ms)
         return false;
     }
 
-    return gpiod_edge_event_get_event_type(event) == GPIOD_EDGE_EVENT_RISING_EDGE;
+    return (gpiod_edge_event_get_event_type(event) == GPIOD_EDGE_EVENT_RISING_EDGE) || get_interrupt_status();
 #else
     uint32_t waited_us = 0;
     uint32_t timeout_us = timeout_ms * 1000U;
@@ -603,6 +611,7 @@ void my_i2c_open(const char *device, uint8_t addr) {
     if (ioctl(fd, I2C_SLAVE, addr) < 0) {
         perror("Failed to acquire bus access and/or talk to slave");
         close(fd);
+        fd = -1;
         return;
     }
 }
@@ -612,7 +621,11 @@ void close_interfaces(enum bhi360_intf intf)
     bhi3_interrupt_deinit();
 
 #ifdef BHI3_USE_I2C
-    close(fd);
+    if (fd >= 0)
+    {
+        close(fd);
+        fd = -1;
+    }
 #else
     #ifdef BHI3_USE_PIGPIO
     spi_close(pigpio, spi);
