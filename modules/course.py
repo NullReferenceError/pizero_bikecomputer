@@ -1128,9 +1128,9 @@ class Course:
                 # app_logger.debug(course.azimuth)
                 # app_logger.debug(f"azimuth_diff:{azimuth_diff}")
                 continue
-            app_logger.debug(
-                f"i:{i}, s:{s}, m:{m}, azimuth_diff:{azimuth_diff[m]}, course_index:{self.index.value}, course_point_index:{self.index.course_points_index}"
-            )
+            #app_logger.debug(
+            #    f"i:{i}, s:{s}, m:{m}, azimuth_diff:{azimuth_diff[m]}, course_index:{self.index.value}, course_point_index:{self.index.course_points_index}"
+            #)
             # app_logger.debug(f"\t lat_lon: {lat}, {lon}")
             # app_logger.debug(f"\t course: {self.latitude[self.index.value]}, {self.longitude[self.index.value]}")
             # app_logger.debug(f"\t course_point: {self.course_points.latitude[self.index.course_points_index]}, {self.course_points.longitude[self.index.course_points_index]}")
