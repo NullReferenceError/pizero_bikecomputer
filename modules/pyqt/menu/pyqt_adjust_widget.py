@@ -112,7 +112,7 @@ class AdjustWidget(MenuWidget):
         set_button.clicked.connect(self.set_value)
         self.menu_layout.addWidget(set_button, *grid_position[1])
 
-        if not self.config.display.has_touch:
+        if self.config.uses_keyboard_navigation:
             self.focus_widget = num_buttons[1]
 
         self.init_extra()
@@ -151,7 +151,7 @@ class AdjustAltitudeWidget(AdjustWidget):
         self.display.setMaxLength(4)
 
     async def set_value_extra(self, value):
-        await self.sensor_i2c.update_sealevel_pa(value)
+        await self.sensor_i2c.update_sealevel_pa(value, force=True)
 
 
 class AdjustWheelCircumferenceWidget(AdjustWidget):

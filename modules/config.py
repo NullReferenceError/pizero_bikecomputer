@@ -35,7 +35,7 @@ class Config:
 
     # loop interval
     G_SENSOR_INTERVAL = 1.0  # [s] for sensor_core
-    G_ANT_INTERVAL = 0.25 #1.0  # [s] for ANT+. 0.25, 0.5, 1.0 only.
+    G_ANT_INTERVAL = 0.25  # 1.0  # [s] for ANT+. 0.25, 0.5, 1.0 only.
     G_I2C_INTERVAL = 1.0  # 0.2 #[s] for I2C (altitude, accelerometer, etc)
     G_GPS_INTERVAL = 1.0  # [s] for GPS
     G_DRAW_INTERVAL = 1000  # [ms] for GUI (QtCore.QTimer)
@@ -564,6 +564,13 @@ class Config:
         if self._loop is None:
             raise RuntimeError("Event loop has not been initialized yet.")
         return self._loop
+
+    @property
+    def uses_keyboard_navigation(self):
+        if self.G_HEADLESS:
+            return True
+        display = getattr(self, "display", None)
+        return not getattr(display, "has_touch", True)
     
     async def start_coroutine(self):
         self._loop = asyncio.get_running_loop()

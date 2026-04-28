@@ -2,7 +2,7 @@ import os
 
 from modules.app_logger import app_logger
 
-DEFAULT_RESOLUTION = (400, 240) #(272, 451) #(400, 240)
+DEFAULT_RESOLUTION = (400, 240) #(544, 451) #(400, 240) #(272, 451) #(400, 240)
 DEFAULT_COLOR = 8
 
 SUPPORTED_DISPLAYS = {
@@ -67,6 +67,10 @@ class Display:
     @property
     def colors(self):
         return getattr(self, "color", DEFAULT_COLOR)
+
+    @property
+    def has_status_bar(self):
+        return self.resolution[1] >= 300
 
     def start_coroutine(self):
         pass

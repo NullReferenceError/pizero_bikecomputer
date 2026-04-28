@@ -148,8 +148,8 @@ class MenuWidget(QtWidgets.QWidget):
             for j in range(self.menu_layout.count(), 8):
                 self.menu_layout.addWidget(MenuButton("dummy", "", self.config))
 
-        # set first focus
-        if not self.config.display.has_touch:
+        # Set the initial focus for keyboard-driven navigation.
+        if self.config.uses_keyboard_navigation:
             self.focus_widget = self.buttons[buttons[0][0]]
 
     def setup_menu(self):
@@ -223,7 +223,7 @@ class TopMenuWidget(MenuWidget):
         self.change_page("Connectivity", preprocess=True)
 
     def cloud_services_menu(self):
-        self.change_page("Upload Activity")
+        self.change_page("Upload Activity", preprocess=True)
 
     def map_menu(self):
         self.change_page("Map and Data")
@@ -439,6 +439,10 @@ class UploadActivityMenuWidget(MenuWidget):
             ),
         )
         self.add_buttons(button_conf)
+
+    def preprocess(self):
+        for button in self.buttons.values():
+            button.reset_loading_state()
 
     @qasync.asyncSlot()
     async def strava_upload(self):
