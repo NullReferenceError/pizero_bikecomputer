@@ -50,7 +50,7 @@ class ANT_Device:
     }
     ant_idle_interval = {"NORMAL": 0.20, "QUICK": 0.01, "SCAN": 0.20}
 
-    def __init__(self, node=None, config=None, values=None, name="", ant_opt={}):
+    def __init__(self, node=None, config=None, values=None, name=""):
         self.node = node
         self.config = config
         self.name = name
@@ -58,9 +58,6 @@ class ANT_Device:
             self.values = {}
         else:
             self.values = values
-        
-        if ant_opt.get("force_4Hz", False):
-            self.ant_config["interval"] = tuple([self.ant_config["interval"][0]] * 3)
 
         self.add_struct_pattern()
         self.init_value()

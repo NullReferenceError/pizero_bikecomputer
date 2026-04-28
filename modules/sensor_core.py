@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import math
 import time
 from datetime import datetime
@@ -79,12 +80,9 @@ class SensorCore:
     brakelight_spd_range = 4
     brakelight_spd_cutoff = 4  # 4*3.6 = 14.4 [km/h]
     brakelight_cad = []
-    brakelight_cad_range = 3  # 2s window at 1Hz loop
-    brakelight_cad_drop_ratio = 0.30
-    brakelight_cad_drop_floor = 70.0
-    brakelight_pitch = []
-    brakelight_pitch_range = 3  # 2s window at 1Hz loop
-    brakelight_pitch_rise_deg_2s = 2.0
+    brakelight_cad_range = 2  # 2 samples at 1Hz loop
+    brakelight_power = []
+    brakelight_power_range = 2  # 2 samples at 1Hz loop
     auto_backlight_brightness = []
     auto_backlight_brightness_range = 3
     graph_keys = [
@@ -130,7 +128,7 @@ class SensorCore:
             self.values["integrated"][d] = [np.nan] * self.grade_range
         self.brakelight_spd = [0] * self.brakelight_spd_range
         self.brakelight_cad = [np.nan] * self.brakelight_cad_range
-        self.brakelight_pitch = [np.nan] * self.brakelight_pitch_range
+        self.brakelight_power = [np.nan] * self.brakelight_power_range
         self.auto_backlight_brightness = \
             [self.config.G_AUTO_BACKLIGHT_CUTOFF+1] * self.auto_backlight_brightness_range
         self.values["integrated"]["CPU_MEM"] = ""
@@ -308,7 +306,7 @@ class SensorCore:
         reset_performance_metrics_state(self)
         self.brakelight_spd = [0] * self.brakelight_spd_range
         self.brakelight_cad = [np.nan] * self.brakelight_cad_range
-        self.brakelight_pitch = [np.nan] * self.brakelight_pitch_range
+        self.brakelight_power = [np.nan] * self.brakelight_power_range
 
     def update_normalized_power(self, pwr):
         perf_update_normalized_power(self, pwr)
@@ -317,6 +315,13 @@ class SensorCore:
     def _shift_window_and_append(window, value):
         window[:-1] = window[1:]
         window[-1] = value
+
+    def _update_zero_window_brake_hint(self, window, value):
+        if np.isnan(value):
+            return False
+
+        self._shift_window_and_append(window, value)
+        return all(v <= 0.0 for v in window)
 
     def _update_speed_brake_hint(self, speed):
         if np.isnan(speed):
@@ -337,29 +342,10 @@ class SensorCore:
         return cond_1 or (cond_2_1 and cond_2_2)
 
     def _update_cadence_brake_hint(self, cadence):
-        if np.isnan(cadence):
-            return False
+        return self._update_zero_window_brake_hint(self.brakelight_cad, cadence)
 
-        self._shift_window_and_append(self.brakelight_cad, cadence)
-
-        cad_prev_2s = self.brakelight_cad[0]
-        cad_now = self.brakelight_cad[-1]
-        cad_drop = (
-            cad_prev_2s >= self.brakelight_cad_drop_floor
-            and cad_now <= cad_prev_2s * (1.0 - self.brakelight_cad_drop_ratio)
-        )
-        cad_all_zero = all(c <= 0.0 for c in self.brakelight_cad)
-        return cad_drop or cad_all_zero
-
-    def _update_pitch_brake_hint(self, pitch_deg):
-        if np.isnan(pitch_deg):
-            return False
-
-        self._shift_window_and_append(self.brakelight_pitch, pitch_deg)
-        return (
-            self.brakelight_pitch[-1] - self.brakelight_pitch[0]
-            >= self.brakelight_pitch_rise_deg_2s
-        )
+    def _update_power_brake_hint(self, power):
+        return self._update_zero_window_brake_hint(self.brakelight_power, power)
 
     async def integrate(self):
         pre_dst = {"ANT+": 0, "GPS": 0}
@@ -781,28 +767,18 @@ class SensorCore:
                 else:
                     self.config.display.set_brightness(0)
 
-            # brake light with speed/cadence/pitch conditions
+            # brake light with speed/cadence/power conditions
             speed = self.values["integrated"]["speed"]
             cadence = self.values["integrated"]["cadence"]
-            # sensor_i2c stores pitch in radians. Convert to degrees for threshold comparison.
-            pitch_deg = np.nan
-            if not np.isnan(v["I2C"]["pitch"]):
-                pitch_deg = math.degrees(v["I2C"]["pitch"])
+            power = self.values["integrated"]["power"]
 
             speed_brake_hint = self._update_speed_brake_hint(speed)
             cadence_brake_hint = self._update_cadence_brake_hint(cadence)
-            pitch_brake_hint = self._update_pitch_brake_hint(pitch_deg)
+            power_brake_hint = self._update_power_brake_hint(power)
 
             if self.config.G_ANT["USE_AUTO_LIGHT"] and self.config.G_MANUAL_STATUS == "START":
-                if speed_brake_hint or cadence_brake_hint or pitch_brake_hint:
+                if speed_brake_hint or cadence_brake_hint or power_brake_hint:
                     auto_light = True
-                    app_logger.debug(
-                        "[BRAKELIGHT] fire "
-                        f"speed={int(speed_brake_hint)} "
-                        f"cadence={int(cadence_brake_hint)} "
-                        f"pitch={int(pitch_brake_hint)}"
-                    )
-
                 if auto_light:
                     self.sensor_ant.set_light_mode("FLASH_LOW", auto=True)
                 else:
@@ -816,7 +792,8 @@ class SensorCore:
                 self.values["integrated"]["cpu_percent"] = int(
                     self.process.cpu_percent(interval=None)
                 )
-                self._update_status_bar_color_by_cpu_usage()
+                if app_logger.isEnabledFor(logging.DEBUG):
+                    self._update_status_bar_color_by_cpu_usage()
                 self.values["integrated"][
                     "CPU_MEM"
                 ] = "{0:.0f}%/{1:.0f}%, {2:.0f}MB".format(

@@ -217,43 +217,39 @@ class SensorANT(Sensor):
             self.device[antIDType].init_after_connect()
             return
 
-        ant_opt = {}
-        if antName in ["SPD", "LGT"] and self.config.G_ANT["USE_AUTO_LIGHT"]:
-            ant_opt["force_4Hz"] = True
-
         # newly connect
         self.values[antIDType] = {}
         if antType == 0x78:
             self.device[antIDType] = ant_device_heartrate.ANT_Device_HeartRate(
-                self.node, self.config, self.values[antIDType], antName, ant_opt
+                self.node, self.config, self.values[antIDType], antName
             )
         elif antType == 0x79:
             self.device[antIDType] = ant_device_speed_cadence.ANT_Device_Speed_Cadence(
-                self.node, self.config, self.values[antIDType], antName, ant_opt
+                self.node, self.config, self.values[antIDType], antName
             )
         elif antType == 0x7A:
             self.device[antIDType] = ant_device_speed_cadence.ANT_Device_Cadence(
-                self.node, self.config, self.values[antIDType], antName, ant_opt
+                self.node, self.config, self.values[antIDType], antName
             )
         elif antType == 0x7B:
             self.device[antIDType] = ant_device_speed_cadence.ANT_Device_Speed(
-                self.node, self.config, self.values[antIDType], antName, ant_opt
+                self.node, self.config, self.values[antIDType], antName
             )
         elif antType == 0x0B:
             self.device[antIDType] = ant_device_power.ANT_Device_Power(
-                self.node, self.config, self.values[antIDType], antName, ant_opt
+                self.node, self.config, self.values[antIDType], antName
             )
         elif antType == 0x23:
             self.device[antIDType] = ant_device_light.ANT_Device_Light(
-                self.node, self.config, self.values[antIDType], antName, ant_opt
+                self.node, self.config, self.values[antIDType], antName
             )
         elif antType == 0x10:
             self.device[antIDType] = ant_device_ctrl.ANT_Device_CTRL(
-                self.node, self.config, self.values[antIDType], antName, ant_opt
+                self.node, self.config, self.values[antIDType], antName
             )
         elif antType == 0x19:
             self.device[antIDType] = ant_device_temperature.ANT_Device_Temperature(
-                self.node, self.config, self.values[antIDType], antName, ant_opt
+                self.node, self.config, self.values[antIDType], antName
             )
         self.device[antIDType].ant_state = "connect_ant_sensor"
         self.device[antIDType].init_after_connect()
