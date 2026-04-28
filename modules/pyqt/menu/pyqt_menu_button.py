@@ -54,6 +54,7 @@ class MenuButton(QtWidgets.QPushButton):
         self.config = config
         self.button_type = button_type
         self.status = False
+        self.loading_active = False
         self.loading_result = False
 
         self.setSizePolicy(QT_EXPANDING, QT_EXPANDING)
@@ -126,32 +127,45 @@ class MenuButton(QtWidgets.QPushButton):
 
     @Slot()
     def loading_start(self):
-        if not self.status:
-            self.status = True
+        if not self.loading_active:
+            self.loading_active = True
             self.loading_movie.start()
 
     @Slot()
     def loading_stop(self, res):
+        result = bool(res)
         self.loading_movie.stop()
-        self.right_icon.set_icon(self.res_img[res])
-        self.status = False
+        self.right_icon.set_icon(self.res_img[result])
+        self.loading_result = result
+        self.loading_active = False
+
+    def reset_loading_state(self):
+        if self.button_type not in ["cloud_upload", "background_task"]:
+            return
+
+        self.loading_movie.stop()
+        self.loading_result = False
+        self.loading_active = False
+        self.right_icon.set_icon(MENU_BUTTON_ICON_MAP[self.button_type].icon())
 
     def init_loading_icon(self):
         self.loading_result = False
         self.loading_movie = QtGui.QMovie(self)
         self.loading_movie.setFileName("img/loading.gif")
         self.loading_movie.frameChanged.connect(self.on_frameChanged)
-        if self.loading_movie.loopCount() != -1:
-            self.loading_movie.finished.connect(self.start)
 
     @Slot(int)
     def on_frameChanged(self, frameNumber):
         self.right_icon.set_icon(QtGui.QIcon(self.loading_movie.currentPixmap()))
 
     async def run(self, func):
-        if self.status:
-            return
+        if self.loading_active:
+            return self.loading_result
 
         self.loading_start()
-        self.loading_result = await func()
-        self.loading_stop(self.loading_result)
+        result = False
+        try:
+            result = await func()
+            return bool(result)
+        finally:
+            self.loading_stop(result)
