@@ -73,12 +73,43 @@ class api:
     pre_value = {
         "OPENMETEO_WIND": [np.nan, np.nan]
     }
+    THINGSBOARD_SHARED_KEYS = ("message_name", "message_body")
+    thingsboard_telemetry_url = None
+    thingsboard_attributes_url = None
+    livetrack_unavailable_reason = None
+    livetrack_unavailable_notified = False
 
     def __init__(self, config):
         self.config = config
 
         t = int(time.time())
         self.send_time["OPENMETEO_WIND"] = t
+
+        self.livetrack_unavailable_reason = None
+        self.livetrack_unavailable_notified = False
+
+        server = self.config.G_THINGSBOARD_API["SERVER"].strip()
+        if server and not server.startswith(("http://", "https://")):
+            server = f"https://{server}"
+        server = server.rstrip("/")
+        token = self.config.G_THINGSBOARD_API["TOKEN"].strip()
+        if not token:
+            self.livetrack_unavailable_reason = (
+                "LiveTrack is disabled because ThingsBoard TOKEN is not configured."
+            )
+        elif not server:
+            self.livetrack_unavailable_reason = (
+                "LiveTrack is disabled because ThingsBoard server is not configured."
+            )
+        else:
+            access_token = urllib.parse.quote(token, safe="")
+            self.thingsboard_telemetry_url = (
+                f"{server}/api/v1/{access_token}/telemetry"
+            )
+            self.thingsboard_attributes_url = (
+                f"{server}/api/v1/{access_token}/attributes?"
+                f"sharedKeys={','.join(self.THINGSBOARD_SHARED_KEYS)}"
+            )
 
         if _IMPORT_THINGSBOARD:
             self.thingsboard_client = TBDeviceMqttClient(
@@ -93,6 +124,35 @@ class api:
     @property
     def network(self):
         return self.config.network
+
+    @property
+    def gadgetbridge_service(self):
+        ble_uart = self.config.ble_uart
+        if ble_uart is None or not ble_uart.status:
+            return None
+        return ble_uart
+
+    def _check_livetrack_startup_config(self):
+        if self.livetrack_unavailable_reason is None:
+            return True
+
+        if not self.livetrack_unavailable_notified:
+            self.livetrack_unavailable_notified = True
+            app_logger.warning(self.livetrack_unavailable_reason)
+            gui = getattr(self.config, "gui", None)
+            popup_multiline = getattr(gui, "show_popup_multiline", None)
+            if callable(popup_multiline):
+                popup_multiline(
+                    "LiveTrack disabled",
+                    self.livetrack_unavailable_reason,
+                    5,
+                )
+            else:
+                popup = getattr(gui, "show_popup", None)
+                if callable(popup):
+                    popup("LiveTrack disabled", 5)
+
+        return False
 
     async def get_google_routes(self, x1, y1, x2, y2):
         if (
@@ -602,7 +662,21 @@ class api:
     def thingsboard_check(self):
         return (self.thingsboard_client is not None)
 
+    def check_livetrack_http_check(self):
+        return self.gadgetbridge_service is not None
+
+    def check_livetrack_mqtt_check(self):
+        # import check
+        if not _IMPORT_THINGSBOARD:
+            return False
+        # Skip if there is no connectivity path available.
+        if not self.network.check_network_with_bt_tethering():
+            return False
+        return True
+
     def send_livetrack_data(self, quick_send=False):
+        if not self._check_livetrack_startup_config():
+            return
 
         # check lock
         if self.send_livetrack_data_lock:
@@ -616,54 +690,210 @@ class api:
         ):
             return
 
-        # check module and network (common with send_livetrack_course_load/send_livetrack_course_reset)
-        if not self.check_livetrack():
+        # Allow Gadgetbridge HTTP upload even when MQTT is not available.
+        if not (
+            self.check_livetrack_http_check()
+            or self.check_livetrack_mqtt_check()
+        ):
             return
-        asyncio.create_task(self.send_livetrack_data_internal(quick_send))
+        asyncio.create_task(self.send_livetrack_data_internal())
 
-    def check_livetrack(self):
-        # import check
-        if not _IMPORT_THINGSBOARD:
+    #def get_tb_message(self, result, exception):
+    #    if exception is not None:
+    #        app_logger.error(f"[BT] thingsboard attributes error: {exception}")
+    #        return
+    #    self._apply_thingsboard_attribute_result(result)
+
+    #def _apply_thingsboard_attribute_result(self, result):
+    #    if not isinstance(result, dict):
+    #        return
+
+    #    shared = result.get("shared")
+    #    if (
+    #        not isinstance(shared, dict)
+    #        or self.THINGSBOARD_SHARED_KEYS[0] not in shared
+    #        or self.THINGSBOARD_SHARED_KEYS[1] not in shared
+    #    ):
+    #        return
+
+    #    name = shared["message_name"]
+    #    body = shared["message_body"]
+    #    if self.tb_message["name"] is None and self.tb_message["message"] is None:
+    #        self.tb_message["name"] = name
+    #        self.tb_message["message"] = body
+    #        return
+
+    #    if self.tb_message["message"] != body and str(body).strip():
+    #        self.tb_message["name"] = name
+    #        self.tb_message["message"] = body
+    #        self.config.gui.popup_tb_message(
+    #            self.tb_message["name"], self.tb_message["message"].strip(), True
+    #        )
+
+    async def _send_thingsboard_telemetry_via_gadgetbridge_http(
+        self,
+        data,
+        timeout=15,
+    ):
+        if self.gadgetbridge_service is None:
             return False
-        # Skip if there is no connectivity path available.
-        if not self.network.check_network_with_bt_tethering():
+        if self.thingsboard_telemetry_url is None:
             return False
+
+        try:
+            await self.gadgetbridge_service.request_http(
+                self.thingsboard_telemetry_url,
+                method="POST",
+                headers={"Content-Type": "application/json"},
+                body=data,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            app_logger.error(
+                "[GB] ThingsBoard telemetry error: "
+                f"{type(exc).__name__}: {exc!r}"
+            )
+            return False
+
         return True
 
-    def get_tb_message(self, result, exception):
-        if exception is not None:
-            app_logger.error(f"[BT] thingsboard attributes error: {exception}")
-        elif "shared" in result and "message_name" in result["shared"] and "message_body" in result["shared"]:
-            res = result["shared"]
-            if self.tb_message["name"] is None and self.tb_message["message"] is None:
-                self.tb_message["name"] = res["message_name"]
-                self.tb_message["message"] =  res["message_body"]
-                return
-            if (
-                self.tb_message["message"] != res["message_body"]
-                and res["message_body"].strip()
-            ):
-                self.tb_message["name"] = res["message_name"]
-                self.tb_message["message"] =  res["message_body"]
-                self.config.gui.popup_tb_message(
-                    self.tb_message["name"], self.tb_message["message"].strip(), True
-                )
-                # Todo: empty message and name / add timestamp
+    async def _send_livetrack_data_via_gadgetbridge_http(self, data):
+        if not await self._send_thingsboard_telemetry_via_gadgetbridge_http(data):
+            return False
+
+        #attributes_url = self.thingsboard_attributes_url
+        #if attributes_url is None:
+        #    server = self.config.G_THINGSBOARD_API["SERVER"].strip()
+        #    if server and not server.startswith(("http://", "https://")):
+        #        server = f"https://{server}"
+        #    server = server.rstrip("/")
+        #    access_token = urllib.parse.quote(
+        #        self.config.G_THINGSBOARD_API["TOKEN"],
+        #        safe="",
+        #    )
+        #    attributes_url = (
+        #        f"{server}/api/v1/{access_token}/attributes?"
+        #        f"sharedKeys={','.join(self.THINGSBOARD_SHARED_KEYS)}"
+        #    )
+        #    self.thingsboard_attributes_url = attributes_url
+
+        #app_logger.debug("[TB][GB] requesting livetrack attributes")
+        #try:
+        #    attributes = await ble_uart.request_http_json(
+        #        attributes_url,
+        #        headers={"Accept": "application/json"},
+        #        timeout=10,
+        #    )
+        #except json.JSONDecodeError as exc:
+        #    app_logger.error(f"[GB] ThingsBoard attributes JSON error: {exc}")
+        #except Exception as exc:
+        #    app_logger.error(f"[GB] ThingsBoard attributes error: {exc}")
+        #else:
+        #    self._apply_thingsboard_attribute_result(attributes)
+        #    app_logger.debug("[TB][GB] livetrack attributes updated")
+
+        return True
+
+    async def _send_livetrack_data_via_mqtt(self, data, caller_name):
+        if not _IMPORT_THINGSBOARD:
+            return None
+
+        app_logger.debug("[TB][MQTT] opening BT tethering for livetrack")
+        bt_open_result = await self.network.open_bt_tethering(caller_name)
+        if not bt_open_result.is_success():
+            app_logger.debug("[TB][MQTT] failed to open BT tethering for livetrack")
+            return "open_error"
+
+        send_status = None
+        close_failed = False
+        try:
+            res = await asyncio.to_thread(
+                self._send_livetrack_telemetry_blocking,
+                data,
+            )
+            if res != TBPublishInfo.TB_ERR_SUCCESS:
+                app_logger.error(f"[BT] thingsboard upload error: {res}")
+            else:
+                send_status = "success"
+                app_logger.debug("[TB][MQTT] livetrack telemetry sent successfully")
+        except socket.timeout as e:
+            app_logger.error(f"[BT] socket timeout: {e}")
+        except socket.error as e:
+            app_logger.error(f"[BT] socket error: {e}")
+        except json.JSONDecodeError as e:
+            app_logger.error(f"[BT] ThingsBoard invalid data: {e}\n{data=}")
+            for datum in data["values"].values():
+                app_logger.error(f"{datum} ({type(datum)})")
+        except Exception as exc:
+            app_logger.exception(f"[BT] unexpected ThingsBoard error: {exc}")
+        finally:
+            if not await self.network.close_bt_tethering(caller_name):
+                close_failed = True
+                app_logger.warning("[TB][MQTT] failed to close BT tethering for livetrack")
+
+        if close_failed:
+            return "close_error"
+        return send_status
+
+    async def _send_livetrack_data_with_fallback(self, data, caller_name):
+        if await self._send_livetrack_data_via_gadgetbridge_http(data):
+            return True, "success"
+
+        app_logger.warning("[TB] livetrack HTTP failed, falling back to MQTT")
+        send_time_status = await self._send_livetrack_data_via_mqtt(
+            data,
+            caller_name,
+        )
+        app_logger.debug(
+            f"[TB] livetrack MQTT fallback completed: status={send_time_status}"
+        )
+        return send_time_status == "success", send_time_status
+
+    async def _send_livetrack_course_via_gadgetbridge_http(self, data):
+        success = await self._send_thingsboard_telemetry_via_gadgetbridge_http(
+            data,
+        )
+        if success:
+            app_logger.debug("[TB][GB] course telemetry sent successfully")
+        return success
+
+    async def _send_livetrack_course_via_mqtt(self, data):
+        if not self.thingsboard_check():
+            return False
+
+        f_name = self.send_livetrack_course.__name__
+        app_logger.debug("[TB][MQTT] opening BT tethering for course")
+        bt_open_result = await self.network.open_bt_tethering(f_name)
+        if not bt_open_result.is_success():
+            app_logger.debug("[TB][MQTT] failed to open BT tethering for course")
+            return False
+
+        try:
+            self.thingsboard_client.connect()
+            res = self.thingsboard_client.send_telemetry(data).get()
+            if res != TBPublishInfo.TB_ERR_SUCCESS:
+                app_logger.error(f"thingsboard upload error: {res}")
+            else:
+                app_logger.debug("[TB][MQTT] course telemetry sent successfully")
+            return True
+        finally:
+            self.thingsboard_client.disconnect()
+            await self.network.close_bt_tethering(f_name)
 
     def _send_livetrack_telemetry_blocking(self, data):
         try:
             self.thingsboard_client.connect()
             res = self.thingsboard_client.send_telemetry(data).get()
-            self.thingsboard_client.request_attributes(
-                shared_keys=["message_name", "message_body"],
-                callback=self.get_tb_message,
-            )
+            #self.thingsboard_client.request_attributes(
+            #    shared_keys=["message_name", "message_body"],
+            #    callback=self.get_tb_message,
+            #)
             time.sleep(1)
             return res
         finally:
             self.thingsboard_client.disconnect()
 
-    async def send_livetrack_data_internal(self, quick_send=False):
+    async def send_livetrack_data_internal(self):
         self.send_livetrack_data_lock = True
         f_name = self.send_livetrack_data_internal.__name__
         timestamp_str = ""
@@ -672,14 +902,7 @@ class api:
             timestamp_str = datetime.fromtimestamp(t).strftime("%m/%d %H:%M")
         # app_logger.info(f"[TB] start, network: {bool(detect_network())}")
 
-        # open connection
         v = self.config.logger.sensor.values
-        bt_open_result = await self.network.open_bt_tethering(f_name)
-        if not bt_open_result.is_success():
-            v["integrated"]["send_time"] = (datetime.now().strftime("%H:%M") + "OE")
-            self.send_livetrack_data_lock = False
-            return
-
         speed = v["integrated"]["speed"]
         if not np.isnan(speed):
             speed = int(speed * 3.6)
@@ -703,40 +926,33 @@ class api:
                 "longitude": float(v["GPS"]["lon"]),
             },
         }
-
         try:
-            res = await asyncio.to_thread(
-                self._send_livetrack_telemetry_blocking, data
+            telemetry_success, send_time_status = (
+                await self._send_livetrack_data_with_fallback(data, f_name)
             )
-            if res != TBPublishInfo.TB_ERR_SUCCESS:
-                app_logger.error(f"[BT] thingsboard upload error: {res}")
-            else:
-                v["integrated"]["send_time"] = datetime.now().strftime("%H:%M")
-        except socket.timeout as e:
-            app_logger.error(f"[BT] socket timeout: {e}")
-        except socket.error as e:
-            app_logger.error(f"[BT] socket error: {e}")
-        #except ValueError as e:
-        #except TypeError as e:
-        except json.JSONDecodeError as e:
-            app_logger.error(f"[BT] ThingsBoard invalid data: {e}\n{data=}")
-            for d in data["values"].values():
-                app_logger.error(f"{d} ({type(d)})")
-        await asyncio.sleep(5)
+            suffix = {
+                "success": "",
+                "open_error": "OE",
+                "close_error": "CE",
+            }.get(send_time_status)
+            if suffix is not None:
+                v["integrated"]["send_time"] = (
+                    datetime.now().strftime("%H:%M") + suffix
+                )
+            await asyncio.sleep(5)
 
-        if self.course_send_status == "LOAD":
-            await self.send_livetrack_course()
-        elif self.course_send_status == "RESET":
-            await self.send_livetrack_course(reset=True)
-
-        # close connection
-        if not await self.network.close_bt_tethering(f_name):
-            v["integrated"]["send_time"] = (datetime.now().strftime("%H:%M") + "CE")
-        # app_logger.info(f"[TB] end, network: {bool(detect_network())}")
-
-        self.send_livetrack_data_lock = False
+            if telemetry_success:
+                if self.course_send_status == "LOAD":
+                    await self.send_livetrack_course()
+                elif self.course_send_status == "RESET":
+                    await self.send_livetrack_course(reset=True)
+        finally:
+            self.send_livetrack_data_lock = False
 
     async def send_livetrack_course(self, reset=False):
+        if not self._check_livetrack_startup_config():
+            return
+
         if not reset and (
             not len(self.config.logger.course.latitude)
             or not len(self.config.logger.course.longitude)
@@ -756,33 +972,39 @@ class api:
 
         # send as polygon sources
         data = {"perimeter": course}
+        app_logger.debug(
+            f"[TB] course send started: reset={reset}, points={len(course)}"
+        )
 
-        # open connection
-        f_name = self.send_livetrack_course.__name__
-        bt_open_result = await self.network.open_bt_tethering(f_name)
-        if not bt_open_result.is_success():
+        if await self._send_livetrack_course_via_gadgetbridge_http(data):
+            self.course_send_status = ""
+            app_logger.debug("[TB] course sent via GadgetBridge HTTP")
             return
 
-        self.thingsboard_client.connect()
-        res = self.thingsboard_client.send_telemetry(data).get()
-        if res != TBPublishInfo.TB_ERR_SUCCESS:
-            app_logger.error(f"thingsboard upload error: {res}")
-        self.thingsboard_client.disconnect()
-
-        # close connection
-        await self.network.close_bt_tethering(f_name)
-        
-        self.course_send_status = ""
+        app_logger.debug("[TB] course HTTP failed, falling back to MQTT")
+        if await self._send_livetrack_course_via_mqtt(data):
+            self.course_send_status = ""
+            app_logger.debug("[TB] course sent via MQTT")
 
     def send_livetrack_course_load(self):
         self.course_send_status = "LOAD"
-        if not self.check_livetrack():
+        if not self._check_livetrack_startup_config():
+            return
+        if not (
+            self.check_livetrack_http_check()
+            or self.check_livetrack_mqtt_check()
+        ):
             return
         asyncio.create_task(self.send_livetrack_course(False))
 
     def send_livetrack_course_reset(self):
         self.course_send_status = "RESET"
-        if not self.check_livetrack():
+        if not self._check_livetrack_startup_config():
+            return
+        if not (
+            self.check_livetrack_http_check()
+            or self.check_livetrack_mqtt_check()
+        ):
             return
         asyncio.create_task(self.send_livetrack_course(True))
     

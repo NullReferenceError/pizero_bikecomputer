@@ -70,11 +70,15 @@ class MapCourseMixin:
     instruction_pos_cache = None
     instruction_anchor_x_ratio = 0.5
     instruction_anchor_y_ratio = 0.15
+    external_instruction_name = ""
+    external_instruction_distance = None
 
     def _setup_course_widgets(self):
         self.course_point_icon_pixmaps = {}
         self.course_point_markers = []
         self.course_point_last_index = None
+        self.external_instruction_name = ""
+        self.external_instruction_distance = None
         self.init_instruction()
 
     def _remove_plot_item(self, item):
@@ -520,6 +524,8 @@ class MapCourseMixin:
             self.track_tail_plot.setData([], [])
 
     def reset_course(self):
+        self.external_instruction_name = ""
+        self.external_instruction_distance = None
         self._hide_instruction()
         if self.instruction is not None:
             self.instruction.deleteLater()
@@ -537,6 +543,8 @@ class MapCourseMixin:
             self._remove_plot_item(course_wind)
 
     def init_course(self):
+        self.external_instruction_name = ""
+        self.external_instruction_distance = None
         self.init_instruction()
         self.course_loaded = False
         self.resizeEvent(None)
@@ -556,13 +564,6 @@ class MapCourseMixin:
         self.init_course()
 
     async def update_instruction(self, *_view_bounds, auto_zoom=False):
-        if (
-            not self.course_points.is_set
-            or not self.config.G_COURSE_INDEXING
-        ):
-            self._hide_instruction()
-            return
-
         instruction_name, instruction_distance = self._get_instruction_data()
         if instruction_distance is None:
             self._hide_instruction()
@@ -618,7 +619,7 @@ class MapCourseMixin:
                     self.zoomlevel = self.auto_zoomlevel_back
                 self.auto_zoomlevel_back = None
 
-    def _get_instruction_data(self):
+    def _get_course_instruction_data(self):
         cp_i = int(getattr(self.course.index, "course_points_index", 0))
         cp_i = max(0, cp_i)
 
@@ -638,11 +639,64 @@ class MapCourseMixin:
 
         return "", None
 
-    def init_instruction(self):
-        if (
+    def _has_external_instruction(self):
+        return (
+            self.external_instruction_distance is not None
+            and bool(str(self.external_instruction_name).strip())
+        )
+
+    def _get_instruction_data(self):
+        if self.course_points.is_set and self.config.G_COURSE_INDEXING:
+            return self._get_course_instruction_data()
+
+        if not self._has_external_instruction():
+            return "", None
+
+        return (
+            str(self.external_instruction_name),
+            float(self.external_instruction_distance),
+        )
+
+    def _should_keep_instruction_item(self):
+        return (
             self.config.logger.course.course_points.is_set
             and self.config.G_COURSE_INDEXING
-        ):
+        ) or self._has_external_instruction()
+
+    def _schedule_instruction_refresh(self):
+        QtCore.QTimer.singleShot(0, self.update_display)
+
+    def set_external_instruction(self, instruction_name, instruction_distance):
+        try:
+            distance_value = float(instruction_distance)
+        except (TypeError, ValueError):
+            self.clear_external_instruction()
+            return
+
+        if not np.isfinite(distance_value) or distance_value < 0:
+            self.clear_external_instruction()
+            return
+
+        name = str(instruction_name).strip()
+        if not name:
+            self.clear_external_instruction()
+            return
+
+        self.external_instruction_name = name
+        self.external_instruction_distance = distance_value
+        self.init_instruction()
+        self._schedule_instruction_refresh()
+
+    def clear_external_instruction(self):
+        had_instruction = self._has_external_instruction()
+        self.external_instruction_name = ""
+        self.external_instruction_distance = None
+        self.init_instruction()
+        if had_instruction:
+            self._schedule_instruction_refresh()
+
+    def init_instruction(self):
+        if self._should_keep_instruction_item():
             if self.instruction is None:
                 self._create_instruction_item()
         else:

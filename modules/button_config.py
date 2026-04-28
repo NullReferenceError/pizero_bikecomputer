@@ -193,8 +193,10 @@ class Button_Config:
         # override from "Zwift Click V2 (BLE)"
         "Zwift_Click_V2_DUAL": {
             "MAIN": {
+                #"NAVIGATION_UP": ("gadgetbridge_termux_voice_command", ""),
                 "NAVIGATION_UP": ("", ""),
-                "NAVIGATION_DOWN": ("", ""),
+                "NAVIGATION_DOWN": ("gadgetbridge_google_assistant", ""),
+                #"NAVIGATION_DOWN": ("", ""),
                 "NAVIGATION_LEFT": ("", ""),
                 "NAVIGATION_RIGHT": ("", ""),
                 "SHIFT_UP_LEFT": ("scroll_prev", "get_screenshot"),
@@ -432,14 +434,6 @@ class Button_Config:
                             map_widget.lock_on()
             elif w_index >= 2:
                 self.G_PAGE_MODE = "MENU"
-
-        app_logger.debug(
-            "[BUTTON] input "
-            f"device={button_hard}, profile={profile}, "
-            f"stack_index={stack_index}, main_page_index={main_page_index}, "
-            f"dialog_active={dialog_active}, page={self.G_PAGE_MODE}, "
-            f"key={press_button}, index={index}"
-        )
 
         if press_button not in self.G_BUTTON_DEF[profile][self.G_PAGE_MODE]:
             app_logger.warning(

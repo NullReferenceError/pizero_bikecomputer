@@ -1,5 +1,6 @@
 import asyncio
 
+
 class GUI_None():
     config = None
     gui_config = None
@@ -19,7 +20,10 @@ class GUI_None():
             # Allow graceful shutdown when Ctrl+C cancels the main task.
             pass
         finally:
-            if self.config.app_close_event is not None and not self.config.app_close_event.is_set():
+            if (
+                self.config.app_close_event is not None
+                and not self.config.app_close_event.is_set()
+            ):
                 try:
                     await self.config.quit()
                 except asyncio.CancelledError:
@@ -35,4 +39,10 @@ class GUI_None():
         pass
 
     def scroll_prev(self):
+        pass
+
+    def set_external_instruction(self, instruction_name, instruction_distance):
+        pass
+
+    def clear_external_instruction(self):
         pass

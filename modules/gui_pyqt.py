@@ -183,13 +183,16 @@ class GUI_PyQt(GUI_Qt_Base):
         self.root_layout.setContentsMargins(0, 0, 0, 0)
         self.root_layout.setSpacing(0)
 
-        self.status_bar = StatusBarWidget(self.root_widget, self.config)
-        self.status_bar.setVisible(True)
-        self.root_layout.addWidget(self.status_bar)
+        if self.config.display.has_status_bar:
+            self.status_bar = StatusBarWidget(self.root_widget, self.config)
+            self.status_bar.setVisible(True)
+            self.root_layout.addWidget(self.status_bar)
+        else:
+            self.status_bar = None
 
         self.stack_widget = QtWidgets.QStackedWidget(self.root_widget)
         self.root_layout.addWidget(self.stack_widget)
-        self.root_layout.setStretch(1, 1)
+        self.root_layout.setStretch(self.root_layout.count() - 1, 1)
 
         self.main_window.setCentralWidget(self.root_widget)
         self.stack_widget.setContentsMargins(0, 0, 0, 0)
@@ -423,7 +426,7 @@ class GUI_PyQt(GUI_Qt_Base):
                     self.status_bar.setParent(right_widget)
                     right_layout.addWidget(self.status_bar)
                 right_layout.addWidget(self.main_page)
-                right_layout.setStretch(1, 1)
+                right_layout.setStretch(right_layout.count() - 1, 1)
 
                 dual_widget = DualDisplayWidget(
                     self.map_widget,
@@ -550,7 +553,7 @@ class GUI_PyQt(GUI_Qt_Base):
 
     def reset_count_internal(self):
         res = self.logger.reset_count()
-        if self.map_widget is not None:
+        if res and self.map_widget is not None:
             self.map_widget.reset_track()
         if (
             res
@@ -727,6 +730,16 @@ class GUI_PyQt(GUI_Qt_Base):
         if self.course_profile_graph_widget is not None:
             self.course_profile_graph_widget.init_course()
 
+    def set_external_instruction(self, instruction_name, instruction_distance):
+        if self.map_widget is not None:
+            self.map_widget.set_external_instruction(
+                instruction_name, instruction_distance
+            )
+
+    def clear_external_instruction(self):
+        if self.map_widget is not None:
+            self.map_widget.clear_external_instruction()
+
     def scroll(self, delta):
         n = self.main_page.count()
         d = delta
@@ -834,12 +847,12 @@ class GUI_PyQt(GUI_Qt_Base):
 
     def change_menu_page(self, page, focus_reset=True):
         self.stack_widget.setCurrentIndex(page)
-        # default focus, set only when has_touch is false
+        # Default focus is required for keyboard-driven navigation, including headless mode.
         focus_widget = getattr(self.stack_widget.widget(page), "focus_widget", None)
         if focus_widget:
             if focus_reset:
                 focus_widget.setFocus()
-        elif self.config.display.has_touch:
+        elif not self.config.uses_keyboard_navigation:
             # reset automatic focus there might not be one
             focus_widget = QtWidgets.QApplication.focusWidget()
             if focus_widget:

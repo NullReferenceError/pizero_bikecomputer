@@ -23,6 +23,10 @@ from modules.sensor.gps.base import (
     NMEA_MODE_3D,
     NMEA_MODE_NO_FIX,
 )
+from modules.utils.navigation import (
+    gadgetbridge_action_to_turn_type,
+    parse_gadgetbridge_distance,
+)
 from modules.utils.asyncio import call_with_delay
 from modules.utils.time import set_time
 from modules.app_logger import app_logger
@@ -36,6 +40,10 @@ class GadgetbridgeService(Service):
     service_uuid = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     rx_characteristic_uuid = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
     tx_characteristic_uuid = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    _ATOB_SENTINEL_KEY = "__gb_atob__"
+    _PNG_SIGNATURE = "\x89PNG\r\n\x1a\n"
+    _TX_CHUNK_SIZE = 20
+    _HDOP_UEAE = 6
 
     product = None
     sensor = None
@@ -48,6 +56,8 @@ class GadgetbridgeService(Service):
 
     message = None
 
+    termux_command = None
+
     timediff_from_utc = timedelta(hours=0)
 
     def __init__(self, product, sensor, gui, init_statuses=False):
@@ -55,6 +65,8 @@ class GadgetbridgeService(Service):
         self.product = product
         self.sensor = sensor
         self.gui = gui
+        self._http_request_id = 0
+        self._http_pending_requests = {}
         super().__init__(self.service_uuid, True)
         if init_statuses and init_statuses[0]:
             asyncio.create_task(self.on_off_uart_service())
@@ -69,9 +81,371 @@ class GadgetbridgeService(Service):
     def tx_characteristic(self, options):
         return bytes(self.product, "utf-8")
 
+    def _ensure_tx_state(self):
+        if not hasattr(self, "_tx_lock"):
+            self._tx_lock = None
+
+    def _build_tx_payload(self, value):
+        return bytes(value + "\\n\n", "utf-8")
+
+    def _send_message_sync(self, value):
+        payload = self._build_tx_payload(value)
+        for i in range(0, len(payload), self._TX_CHUNK_SIZE):
+            self.tx_characteristic.changed(payload[i : i + self._TX_CHUNK_SIZE])
+
+    async def _send_message_async(self, value):
+        self._ensure_tx_state()
+        if self._tx_lock is None:
+            self._tx_lock = asyncio.Lock()
+
+        payload = self._build_tx_payload(value)
+        async with self._tx_lock:
+            for i in range(0, len(payload), self._TX_CHUNK_SIZE):
+                self.tx_characteristic.changed(payload[i : i + self._TX_CHUNK_SIZE])
+                await asyncio.sleep(0)
+
     # notice to central
     def send_message(self, value):
-        self.tx_characteristic.changed(bytes(value + "\\n\n", "utf-8"))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._send_message_sync(value)
+            return None
+        return loop.create_task(self._send_message_async(value))
+
+    def send_intent(self, action, target="activity", flags=None, **kwargs):
+        message = {
+            "t": "intent",
+            "target": target,
+            "action": action,
+        }
+        if flags:
+            message["flags"] = flags
+        message.update(kwargs)
+        self.send_message(json.dumps(message, separators=(",", ":")))
+
+    def start_google_assistant(self):
+        self.send_intent(
+            action="android.intent.action.VOICE_COMMAND",
+            flags=["FLAG_ACTIVITY_NEW_TASK"],
+        )
+
+    def run_termux_command(self, command_path):
+        self.send_intent(
+            target="service",
+            action="com.termux.RUN_COMMAND",
+            package="com.termux",
+            **{
+                "class": "com.termux.app.RunCommandService",
+                "extra": {
+                    "com.termux.RUN_COMMAND_PATH": command_path,
+                    "com.termux.RUN_COMMAND_BACKGROUND": True,
+                },
+            },
+        )
+
+    def start_termux_voice_command(self):
+        if self.termux_command is not None:
+            self.run_termux_command(self.termux_command)
+
+    def _ensure_http_state(self):
+        if not hasattr(self, "_http_request_id"):
+            self._http_request_id = 0
+        if not hasattr(self, "_http_pending_requests"):
+            self._http_pending_requests = {}
+
+    def _ensure_nav_state(self):
+        if not hasattr(self, "_nav_message_cache"):
+            self._nav_message_cache = None
+
+    @staticmethod
+    def _get_nav_message_cache_key(message):
+        return (
+            str(message.get("action", "")).strip().lower(),
+            str(message.get("distance", "")).replace("\u00A0", " ").strip(),
+            str(message.get("instr", "")).strip(),
+        )
+
+    def _has_active_course(self):
+        try:
+            return bool(self.gui.config.logger.course.is_set)
+        except Exception:
+            return False
+
+    def _handle_nav_message(self, message):
+        if any(key not in message for key in ("distance", "action")):
+            return
+
+        if self._has_active_course():
+            return
+
+        self._ensure_nav_state()
+        cache_key = self._get_nav_message_cache_key(message)
+        if cache_key == self._nav_message_cache:
+            return
+        self._nav_message_cache = cache_key
+
+        instruction_name = gadgetbridge_action_to_turn_type(cache_key[0])
+        instruction_distance = parse_gadgetbridge_distance(cache_key[1])
+
+        if instruction_name and instruction_distance is not None:
+            self.gui.set_external_instruction(instruction_name, instruction_distance)
+            app_logger.debug(
+                "[GB][NAV] update instruction: "
+                f"action={cache_key[0]!r}, distance={cache_key[1]!r}, "
+                f"instr={cache_key[2]!r}, turn_type={instruction_name!r}, "
+                f"distance_m={instruction_distance:.1f}"
+            )
+            return
+
+        self.gui.clear_external_instruction()
+        app_logger.debug(
+            "[GB][NAV] clear instruction: "
+            f"action={cache_key[0]!r}, distance={cache_key[1]!r}, "
+            f"instr={cache_key[2]!r}"
+        )
+
+    def _next_http_request_id(self):
+        self._ensure_http_state()
+        self._http_request_id += 1
+        return str(self._http_request_id)
+
+    async def request_http(
+        self,
+        url,
+        method="GET",
+        headers=None,
+        body=None,
+        timeout=30,
+        insecure=False,
+        xpath=None,
+        return_type=None,
+    ):
+        if not self.status:
+            raise RuntimeError("Gadgetbridge UART service is disabled")
+
+        self._ensure_http_state()
+
+        loop = asyncio.get_running_loop()
+        request_id = self._next_http_request_id()
+        future = loop.create_future()
+        self._http_pending_requests[request_id] = future
+
+        message = {
+            "t": "http",
+            "id": request_id,
+            "url": url,
+        }
+        method = method.upper()
+        if method != "GET":
+            message["method"] = method
+        if headers:
+            message["headers"] = {str(key): str(value) for key, value in headers.items()}
+        if body is not None:
+            if not isinstance(body, str):
+                body = json.dumps(body, separators=(",", ":"))
+            message["body"] = body
+        if insecure:
+            message["insecure"] = True
+        if xpath:
+            message["xpath"] = xpath
+        if return_type:
+            message["return"] = return_type
+
+        send_task = self.send_message(json.dumps(message, separators=(",", ":")))
+        if send_task is not None:
+            await send_task
+
+        try:
+            response = await asyncio.wait_for(future, timeout=timeout)
+            return response
+        except asyncio.TimeoutError:
+            app_logger.warning(
+                "[GB][HTTP] request timed out: "
+                f"id={request_id}, timeout={timeout}, url={url}"
+            )
+            raise
+        except Exception as exc:
+            app_logger.warning(
+                "[GB][HTTP] request failed: "
+                f"id={request_id}, type={type(exc).__name__}, detail={exc!r}"
+            )
+            raise
+        finally:
+            pending = self._http_pending_requests.get(request_id)
+            if pending is future:
+                self._http_pending_requests.pop(request_id, None)
+
+    async def request_http_json(self, *args, **kwargs):
+        response = await self.request_http(*args, **kwargs)
+        payload = response.get("resp")
+        if payload in (None, ""):
+            return None
+        if isinstance(payload, (bytes, bytearray)):
+            payload = payload.decode("utf-8")
+        return json.loads(payload)
+
+    @classmethod
+    def _encode_http_download_payload(cls, payload, save_path=""):
+        if isinstance(payload, (bytes, bytearray)):
+            return bytes(payload)
+        if isinstance(payload, str):
+            if payload.startswith(cls._PNG_SIGNATURE):
+                return payload.encode("latin-1")
+            return payload.encode("utf-8")
+        return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+    @staticmethod
+    def _normalize_http_batch_values(name, values, expected_length, default_value):
+        if values is None:
+            return [default_value] * expected_length
+
+        value_list = list(values)
+        if len(value_list) != expected_length:
+            raise ValueError(
+                f"{name} length mismatch: expected {expected_length}, "
+                f"got {len(value_list)}"
+            )
+        return value_list
+
+    async def download_http_file(
+        self,
+        url,
+        save_path,
+        headers=None,
+        method="GET",
+        body=None,
+        timeout=120,
+        insecure=False,
+    ):
+        response = await self.request_http(
+            url,
+            method=method,
+            headers=headers,
+            body=body,
+            timeout=timeout,
+            insecure=insecure,
+        )
+        data = self._encode_http_download_payload(response.get("resp", ""), save_path)
+        await asyncio.to_thread(self._write_http_download, save_path, data)
+        return 200
+
+    @staticmethod
+    def _write_http_download(save_path, data):
+        with open(save_path, "wb") as file_handle:
+            file_handle.write(data)
+
+    async def download_http_files(
+        self,
+        urls,
+        save_paths,
+        headers=None,
+        methods=None,
+        bodies=None,
+        timeout=120,
+        limit=None,
+        insecure=False,
+    ):
+        url_list = list(urls)
+        save_path_list = list(save_paths)
+        if len(url_list) != len(save_path_list):
+            raise ValueError(
+                "save_paths length mismatch: "
+                f"expected {len(url_list)}, got {len(save_path_list)}"
+            )
+
+        max_concurrency = limit or len(url_list) or 1
+        semaphore = asyncio.Semaphore(max(1, max_concurrency))
+        method_list = self._normalize_http_batch_values(
+            "methods",
+            methods,
+            len(url_list),
+            "GET",
+        )
+        body_list = self._normalize_http_batch_values(
+            "bodies",
+            bodies,
+            len(url_list),
+            None,
+        )
+
+        async def _download_one(url, save_path, method, body):
+            async with semaphore:
+                try:
+                    return await self.download_http_file(
+                        url,
+                        save_path,
+                        headers=headers,
+                        method=method,
+                        body=body,
+                        timeout=timeout,
+                        insecure=insecure,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    app_logger.error(f"Gadgetbridge HTTP download error: {exc}\n{url}")
+                    return -1
+
+        tasks = [
+            _download_one(url, save_path, method, body)
+            for url, save_path, method, body in zip(
+                url_list, save_path_list, method_list, body_list
+            )
+        ]
+        return await asyncio.gather(*tasks)
+
+    def _complete_http_request(self, message):
+        self._ensure_http_state()
+        request_id = message.get("id")
+        if request_id is None:
+            app_logger.warning(f"Gadgetbridge HTTP response without id: {message}")
+            return
+
+        future = self._http_pending_requests.pop(str(request_id), None)
+        if future is None:
+            app_logger.warning(
+                f"Gadgetbridge HTTP response has no pending request: {message}"
+            )
+            return
+        if future.done():
+            return
+
+        if "err" in message and message["err"]:
+            app_logger.warning(
+                "[GB][HTTP] response error: "
+                f"id={request_id}, detail={message['err']!r}"
+            )
+            future.set_exception(RuntimeError(message["err"]))
+            return
+
+        future.set_result(message)
+
+    @staticmethod
+    def _strip_message_markers(message_str):
+        return message_str.lstrip(chr(F_BYTE_MARKER)).rstrip(chr(L_BYTE_MARKER))
+
+    @classmethod
+    def _format_received_message_for_log(cls, message_str):
+        message_str = cls._strip_message_markers(message_str)
+
+        if len(message_str) <= 512:
+            return message_str
+
+        if '"t":"http"' in message_str or 't:"http"' in message_str:
+            request_id = None
+            for pattern in (r'"id":"([^"]+)"', r'"id":(\d+)', r'id:"([^"]+)"', r'id:(\d+)'):
+                match = re.search(pattern, message_str)
+                if match is not None:
+                    request_id = match.group(1)
+                    break
+            request_id_str = f", id={request_id}" if request_id is not None else ""
+            return (
+                f"[GB][HTTP][RX] len={len(message_str)}{request_id_str}, "
+                "payload omitted"
+            )
+
+        return f"{message_str[:256]}... (truncated, len={len(message_str)})"
 
     # receive from central
     @characteristic(rx_characteristic_uuid, CharFlags.WRITE).setter
@@ -91,7 +465,9 @@ class GadgetbridgeService(Service):
         if self.message[-1] == L_BYTE_MARKER:
             # full message received, we can decode it
             message_str = self.message.decode("utf-8", "ignore")
-            app_logger.debug(f"Received message: {message_str}")
+            app_logger.debug(
+                f"Received message: {self._format_received_message_for_log(message_str)}"
+            )
             self.decode_message(message_str)
             self.message = None
 
@@ -121,12 +497,33 @@ class GadgetbridgeService(Service):
 
         return self.gps_status
 
-    @staticmethod
-    def decode_b64(match_object):
-        return f'"{base64.b64decode(match_object.group(1)).decode()}"'
+    @classmethod
+    def _replace_atob_expression(cls, match_object):
+        encoded = match_object.group(1)
+        return f'{{"{cls._ATOB_SENTINEL_KEY}":"{encoded}"}}'
+
+    @classmethod
+    def _decode_atob_payload(cls, payload):
+        data = base64.b64decode(payload)
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return data
+
+    @classmethod
+    def _decode_atob_values(cls, payload):
+        if isinstance(payload, list):
+            return [cls._decode_atob_values(value) for value in payload]
+        if isinstance(payload, dict):
+            if set(payload.keys()) == {cls._ATOB_SENTINEL_KEY}:
+                return cls._decode_atob_payload(payload[cls._ATOB_SENTINEL_KEY])
+            return {
+                key: cls._decode_atob_values(value) for key, value in payload.items()
+            }
+        return payload
 
     def decode_message(self, raw_message: str):
-        message = raw_message.lstrip(chr(F_BYTE_MARKER)).rstrip(chr(L_BYTE_MARKER))
+        message = self._strip_message_markers(raw_message)
 
         if message.startswith("setTime"):
             res = re.match(r"^setTime\((\d+)\);E.setTimeZone\((\S+)\);", message)
@@ -158,9 +555,14 @@ class GadgetbridgeService(Service):
                     r'\1"\2":',
                     message,
                 )
-                message = re.sub(r'atob\("([^\"]+)"\)', self.decode_b64, message)
+                message = re.sub(
+                    r'atob\("([^\"]+)"\)',
+                    self._replace_atob_expression,
+                    message,
+                )
 
                 message = json.loads(message, strict=False)
+                message = self._decode_atob_values(message)
 
                 m_type = message.get("t")
 
@@ -191,7 +593,7 @@ class GadgetbridgeService(Service):
                             - self.timediff_from_utc
                         ).replace(tzinfo=timezone.utc)
                     if "hdop" in message:
-                        hdop = float(message["hdop"])
+                        hdop = float(message["hdop"]) / self._HDOP_UEAE  # different from NMEA hdop
                         if hdop < HDOP_CUTOFF_MODERATE:
                             mode = NMEA_MODE_3D
                         elif hdop < HDOP_CUTOFF_FAIR:
@@ -217,22 +619,10 @@ class GadgetbridgeService(Service):
                 elif m_type == "is_gps_active" and self.auto_connect_gps:
                     self.auto_connect_gps = False
                     call_with_delay(self.on_off_gadgetbridge_gps)
-                elif m_type == "nav" and all(
-                    [x in message for x in ["instr", "distance", "action"]]
-                ):
-                    # action
-                    # "","continue",
-                    # "left", "left_slight", "left_sharp",  "right", "right_slight", "right_sharp",
-                    # "keep_left", "keep_right", "uturn_left", "uturn_right",
-                    # "offroute",
-                    # "roundabout_right", "roundabout_left", "roundabout_straight", "roundabout_uturn",
-                    # "finish"
-                    app_logger.info(message)
-                    # blank distance: skip
-                    # eta?
-                    # app_logger.info(f"{len(self.value)}, {len(self.timestamp_bytes)}")
-                    # msg = f"{message['distance']}, {message['action']}\n{message['instr']}"
-                    # self.gui.show_forced_message(msg)
+                elif m_type == "http":
+                    self._complete_http_request(message)
+                elif m_type == "nav":
+                    self._handle_nav_message(message)
 
             except json.JSONDecodeError:
                 app_logger.exception(f"Failed to load message as json {raw_message}")

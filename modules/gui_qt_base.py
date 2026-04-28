@@ -309,6 +309,12 @@ class GUI_Qt_Base(QtCore.QObject):
     def show_forced_message(self, msg):
         pass
 
+    def set_external_instruction(self, instruction_name, instruction_distance):
+        pass
+
+    def clear_external_instruction(self):
+        pass
+
     def show_dialog(self, fn, title):
         self._enqueue_msg({"fn": fn, "title": title, "button_num": 2})
 
@@ -326,6 +332,24 @@ class GUI_Qt_Base(QtCore.QObject):
                 "button_label": ["Cancel"],
             }
         )
+
+    def _run_gadgetbridge_action(self, action_name):
+        ble_uart = getattr(self.config, "ble_uart", None)
+        if ble_uart is None or not ble_uart.status:
+            return False
+        action = getattr(ble_uart, action_name)
+        loop = getattr(self.config, "_loop", None)
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(action)
+        else:
+            action()
+        return True
+
+    def gadgetbridge_google_assistant(self):
+        return self._run_gadgetbridge_action("start_google_assistant")
+
+    def gadgetbridge_termux_voice_command(self):
+        return self._run_gadgetbridge_action("start_termux_voice_command")
 
     async def show_dialog_base(self, msg):
         pass
