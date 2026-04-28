@@ -229,10 +229,21 @@ for auto backlight when using MIP Reflective color LCD
 
 This is essential for displays without buttons, like MIP displays.
 
-- [Button SHIM](https://shop.pimoroni.com/products/button-shim)
+#### [Button SHIM](https://shop.pimoroni.com/products/button-shim)
+
 - <img src="https://user-images.githubusercontent.com/12926652/91799330-cfc50580-ec61-11ea-9045-e1991aed205c.png" width=240 />
-- MCP23008/MCP23009 or some variants
+
+#### MCP23008 / MCP23009 (or variants)
+
 - <img width="526" alt="Image" src="https://github.com/user-attachments/assets/8d2532a1-5e8b-4710-9c9f-fc227330d6f0" />
+
+#### Direct GPIO buttons
+
+You can also connect momentary buttons directly to Raspberry Pi GPIO pins on a custom board.
+
+The software side handles GPIO buttons via a per-product profile (`PiTFT`, `Papirus`, `DFRobot_RPi_Display`, `Pirate_Audio`, `Pirate_Audio_old`, `Display_HAT_Mini`). You can also add or modify a profile in `modules/button_config.py` (`G_BUTTON_DEF`) to customize button assignments.
+
+Wiring is active-LOW (`GPIO ── button ── GND`). All built-in profiles except Papirus use the internal pull-up, so external pull-up resistors are not required. Avoid GPIO pins already used by SPI / I2C / UART unless that sharing is intentional.
 
 ### Battery
 

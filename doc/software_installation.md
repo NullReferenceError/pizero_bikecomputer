@@ -229,11 +229,12 @@ $ pip install adafruit-circuitpython-bmp280
 |:-|:-|:-|:-|
 | [Bosch BMP280](https://www.adafruit.com/product/2651) | [Adafruit](https://www.adafruit.com/product/2651) | | None |
 | [Bosch BMP390](https://www.adafruit.com/product/4816) | [Adafruit](https://www.adafruit.com/product/4816) | | None |
-| [Bosch BMP581](https://www.sparkfun.com/products/20170) | [SparkFun](https://www.sparkfun.com/products/20170) | o | None(*1) |
-| [Bosch BMI270](https://www.bosch-sensortec.com/products/motion-sensors/imus/bmi270/) | | o | None(*1) |
-| [Bosch BMM150 (Obsolete)](https://www.bosch-sensortec.com/products/motion-sensors/magnetometers/bmm150/) | | | None(*1) |
-| [Bosch BMM350](https://www.bosch-sensortec.com/products/motion-sensors/magnetometers/bmm350/) | | o | None(*1) |
-| Bosch BHI360 Shuttle Board 3.0 | | | bundled Cython helper |
+| [Bosch BMP581](https://www.sparkfun.com/products/20170) | [SparkFun](https://www.sparkfun.com/products/20170) | | bundled Cython helper(*1) |
+| [Bosch BMI270](https://www.bosch-sensortec.com/products/motion-sensors/imus/bmi270/) | | | bundled Cython helper(*1) |
+| [Bosch BMM150 (Obsolete)](https://www.bosch-sensortec.com/products/motion-sensors/magnetometers/bmm150/) | | | bundled Cython helper(*1) |
+| [Bosch BMM350](https://www.bosch-sensortec.com/products/motion-sensors/magnetometers/bmm350/) | | | bundled Cython helper(*1) |
+| [Bosch BHI360 Shuttle Board 3.0](https://www.bosch-sensortec.com/en/products/smart-sensor-systems/bhi360) | | o | bundled Cython helper(*1) |
+| [Bosch BHI385 Shuttle Board 3.0](https://www.bosch-sensortec.com/en/products/smart-sensor-systems/bhi385) | | | bundled Cython helper(*1) |
 | [Bosch BNO055](https://www.bosch-sensortec.com/products/smart-sensor-systems/bno055/) | [Adafruit](https://www.adafruit.com/product/4646) | | adafruit-circuitpython-bno055(*2) | 
 | [MEMSIC MMC5983MA](https://www.memsic.com/magnetometer-5) | [SparkFun](https://www.sparkfun.com/products/19895) | | None |
 | [STMicroelectronics LIS3MDL](https://www.st.com/en/mems-and-sensors/lis3mdl.html) | [Adafruit](https://www.adafruit.com/product/4485) | | adafruit-circuitpython-lis3mdl |
@@ -244,7 +245,7 @@ $ pip install adafruit-circuitpython-bmp280
 | | [waveshare Environment Sensor HAT](https://www.waveshare.com/environment-sensor-hat.htm) | | adafruit-circuitpython-bme280 adafruit-circuitpython-icm20x adafruit-circuitpython-tsl2591 adafruit-circuitpython-ltr390 adafruit-circuitpython-sgp40 |
 | (Obsolete) Bosch BMX160+BMP388 | [DFRobot](https://www.dfrobot.com/product-1928.html) | | BMX160(*3) | 
 | (Obsolete) [STMicroelectronics LPS33HW](https://www.st.com/resource/en/product_presentation/Sensors2018_Water_resistant_Pressure_Sensor_LPS33HW.pdf) | [Adafruit](https://www.adafruit.com/product/4414), [Strawberry Linux](https://strawberry-linux.com/catalog/items?code=12133)| | None |
-| STMicroelectronics LSM6DS33(Obsolete) | [Adafruit](https://www.adafruit.com/product/4485) | | adafruit-circuitpython-lsm6ds |
+| (Obsolete) STMicroelectronics LSM6DS33 | [Adafruit](https://www.adafruit.com/product/4485) | | adafruit-circuitpython-lsm6ds |
 | (Obsolete) [STMicroelectronics LSM9DS1](https://www.st.com/ja/mems-and-sensors/lsm9ds1.html) | [Adafruit](https://www.adafruit.com/product/4634) | | adafruit-circuitpython-lsm9ds1 | 
 | | (Obsolete) [Pimoroni Enviro pHAT](https://learn.pimoroni.com/article/getting-started-with-enviro-phat) | | None |
 
@@ -284,6 +285,30 @@ Also, place the header files in LD_INCLUDE_PATH (/usr/local/include, etc.).
   $ sudo ldconfig
   ```
 
+- [BHI360_SensorAPI](https://github.com/boschsensortec/BHI360_SensorAPI)
+  - add `#include <stdint.h>` to examples/common/verbose.h
+  - 
+  ```
+  $ gcc -shared -fPIC -O2 -o libbhi360.so bhi*.c examples/common/verbose.c -I./examples/common/
+  $ sudo mv libbhi360.so /usr/local/lib/
+  $ sudo cp bhi*.h /usr/local/include/
+  $ sudo cp examples/common/verbose.h /usr/local/include/
+  $ sudo cp -a firmware/bhi360 /usr/local/include/
+  $ sudo ldconfig
+  ```
+
+- [BHI385_SensorAPI](https://github.com/boschsensortec/BHI385_SensorAPI)
+  - add `#include <stdint.h>` to examples/common/verbose.h
+  - 
+  ```
+  $ gcc -shared -fPIC -O2 -o libbhi385.so source/bhi*.c examples/common/verbose.c -I./examples/common/
+  $ sudo mv libbhi385.so /usr/local/lib/
+  $ sudo cp source/bhi*.h /usr/local/include/
+  $ sudo cp examples/common/verbose.h /usr/local/include/
+  $ sudo cp -a firmware/bhi385 /usr/local/include/
+  $ sudo ldconfig
+  ```
+
 *2 You must enable i2c slowdown. Follow [the adafruit guide](https://learn.adafruit.com/circuitpython-on-raspberrypi-linux/i2c-clock-stretching).
 
 *3 Install manually https://github.com/spacecraft-design-lab-2019/CircuitPython_BMX160
@@ -303,9 +328,7 @@ $ sudo apt install python3-buttonshim
 
 #### IO Expander (with MCP23008/MCP23009 and some buttons)
 
-```
-$ pip install adafruit-circuitpython-mcp230xx
-```
+No additional Python package is required by this repository.
 
 #### PiJuice HAT
 
@@ -322,22 +345,22 @@ If cython is available, it will take a few minutes to run for the first time to 
 
 ## Run on Wayland / X Window
 
-If you use Raspberry Pi OS with desktop, starting on X Window at first would be better.
+Use Raspberry Pi OS with desktop.
 
 ```
 $ python3 pizero_bikecomputer.py
 ```
-
-For legacy MIP / SHARP / E-ink displays in console mode, use `QT_QPA_PLATFORM=offscreen`.
-If you use the newer `sharp-drm` driver, use `QT_QPA_PLATFORM=linuxfb:fb=/dev/fb1`.
-
-If your Qt build includes the VNC platform plugin, `QT_QPA_PLATFORM=vnc` can still be used for temporary remote debugging, but it is not a primary workflow for this project.
 
 ### PiTFT
 
 see [hardware_installation_pitft.md](./hardware_installation_pitft.md#run-on-x-window)
 
 ## Run in console
+
+For legacy MIP / SHARP / E-ink displays in console mode, use `QT_QPA_PLATFORM=offscreen`.
+If you use the newer `sharp-drm` driver, use `QT_QPA_PLATFORM=linuxfb:fb=/dev/fb1`.
+
+If your Qt build includes the VNC platform plugin, `QT_QPA_PLATFORM=vnc` can still be used for temporary remote debugging, but it is not a primary workflow for this project.
 
 ### Manual execution
 
@@ -364,7 +387,7 @@ see [hardware_installation_pitft.md](./hardware_installation_pitft.md#run-on-con
 
 ### Run as a service
 
-The old `install/` paths, `exec-mip.sh`, and shutdown helper service are no longer used in this repository.
+The old `install/` paths and shutdown helper service are no longer used in this repository.
 The current service template lives at `scripts/install/etc/systemd/system/pizero_bikecomputer.service`,
 and the recommended way is to run `install.sh` and answer `Install services? -> y`.
 
