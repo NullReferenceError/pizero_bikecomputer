@@ -24,6 +24,13 @@ class SystemMenuWidget(MenuWidget):
             ("Language", None, None),
             ("Units", "toggle", lambda: self.toggle_units(True)),
             (
+                "Restart",
+                "dialog",
+                lambda: self.config.gui.show_dialog(
+                    self.config.restart_application, "Restart App"
+                ),
+            ),
+            (
                 "Update",
                 "dialog",
                 lambda: self.config.gui.show_dialog(
@@ -64,7 +71,7 @@ class SystemMenuWidget(MenuWidget):
             unit_name = "Imperial" if self.config.G_UNIT_SYSTEM == "imperial" else "Metric"
             self.config.gui.show_dialog_ok_only(
                 fn=None, 
-                title=f"Units set to {unit_name}. Restart app to apply."
+                title=f"Units set to {unit_name}. Use Restart to apply."
             )
         
         # Update button state to show current selection
