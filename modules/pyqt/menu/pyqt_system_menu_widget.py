@@ -22,6 +22,7 @@ class SystemMenuWidget(MenuWidget):
             ("Network", "submenu", self.network),
             ("Brightness", None, None),
             ("Language", None, None),
+            ("Units", "toggle", lambda: self.toggle_units(True)),
             (
                 "Update",
                 "dialog",
@@ -38,11 +39,36 @@ class SystemMenuWidget(MenuWidget):
         )
         self.add_buttons(button_conf)
 
+    def preprocess(self):
+        # Initialize Units toggle button state
+        self.toggle_units(change=False)
+
     def network(self):
         self.change_page("Network", preprocess=True)
 
     def debug(self):
         self.change_page("Debug")
+
+    def toggle_units(self, change=True):
+        if change:
+            # Toggle between metric and imperial
+            if self.config.G_UNIT_SYSTEM == "metric":
+                self.config.G_UNIT_SYSTEM = "imperial"
+            else:
+                self.config.G_UNIT_SYSTEM = "metric"
+            
+            # Save to config file
+            self.config.setting.write_config()
+            
+            # Show dialog indicating restart needed
+            unit_name = "Imperial" if self.config.G_UNIT_SYSTEM == "imperial" else "Metric"
+            self.config.gui.show_dialog_ok_only(
+                fn=None, 
+                title=f"Units set to {unit_name}. Restart app to apply."
+            )
+        
+        # Update button state to show current selection
+        self.buttons["Units"].change_toggle(self.config.G_UNIT_SYSTEM == "imperial")
 
 
 class NetworkMenuWidget(MenuWidget):
