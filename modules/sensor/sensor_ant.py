@@ -20,28 +20,47 @@ from .ant import ant_device_search
 _SENSOR_ANT = False
 
 _ANT_DEVICE_ID_VENDOR = 0x0fcf
-_ANT_DEVICE_ID_PRODUCT = 0x1008
+# Support both ANTUSB2 (0x1008) and ANTUSB-m (0x1009)
+_ANT_DEVICE_ID_PRODUCTS = [0x1008, 0x1009]
+
+def _find_ant_device():
+    """Find ANT USB device, trying all known product IDs."""
+    try:
+        import usb.core
+        # Try to find any supported ANT device
+        for product_id in _ANT_DEVICE_ID_PRODUCTS:
+            dev = usb.core.find(idVendor=_ANT_DEVICE_ID_VENDOR, idProduct=product_id)
+            if dev:
+                app_logger.info(f"[ANT+] Found ANT device: 0x{_ANT_DEVICE_ID_VENDOR:04x}:0x{product_id:04x}")
+                return dev
+        app_logger.warning(f"[ANT+] No ANT device found (tried product IDs: {[hex(p) for p in _ANT_DEVICE_ID_PRODUCTS]})")
+        return None
+    except Exception as e:
+        app_logger.error(f"[ANT+] Error searching for ANT device: {e}")
+        return None
 
 def _reset_ant_stick():
     try:
         import usb.core
         import usb.util
-        dev = usb.core.find(idVendor=_ANT_DEVICE_ID_VENDOR, idProduct=_ANT_DEVICE_ID_PRODUCT)
+        dev = _find_ant_device()
         if dev:
             try:
                 dev.reset()
                 dev.set_configuration()
-                app_logger.debug("[ANT+] ANT stick reset and configured")
+                app_logger.info("[ANT+] ANT stick reset and configured successfully")
             except Exception as e:
-                app_logger.debug(f"[ANT+] Could not reset ANT stick: {e}")
+                app_logger.warning(f"[ANT+] Could not reset ANT stick: {e}")
+        else:
+            app_logger.warning("[ANT+] Could not find ANT stick for reset")
     except Exception as e:
-        app_logger.debug(f"[ANT+] Could not find ANT stick for reset: {e}")
+        app_logger.error(f"[ANT+] Error during ANT stick reset: {e}")
 
 def _wake_up_ant_stick():
     try:
         import usb.core
         import usb.util
-        dev = usb.core.find(idVendor=_ANT_DEVICE_ID_VENDOR, idProduct=_ANT_DEVICE_ID_PRODUCT)
+        dev = _find_ant_device()
         if dev:
             try:
                 dev.set_configuration()
@@ -56,8 +75,10 @@ def _wake_up_ant_stick():
                     app_logger.debug("[ANT+] ANT stick wake-up sent")
             except Exception as e:
                 app_logger.debug(f"[ANT+] Could not wake up ANT stick (may already be in use): {e}")
+        else:
+            app_logger.debug("[ANT+] Could not find ANT stick for wake-up")
     except Exception as e:
-        app_logger.debug(f"[ANT+] Could not find ANT stick: {e}")
+        app_logger.debug(f"[ANT+] Error during ANT stick wake-up: {e}")
 
 try:
     from ant.easy.node import Node
