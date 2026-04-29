@@ -481,11 +481,23 @@ class MapHudMixin:
         elif 5 < num < 10:
             modify = 10 / num
 
-        scale_unit = "m"
-        scale_label = round(scale_dist * modify)
-        if scale_label >= 1000:
-            scale_label = int(scale_label / 1000)
-            scale_unit = "km"
+        if self.config.G_UNIT_SYSTEM == "imperial":
+            # Imperial: feet/miles
+            scale_unit = "ft"
+            scale_label = round(scale_dist * modify * 3.28084)  # m to ft
+            if scale_label >= 5280:  # 5280 ft = 1 mile
+                scale_label = round(scale_label / 5280, 1)
+                scale_unit = "mi"
+            elif scale_label >= 1000:
+                scale_label = round(scale_label / 1000, 1)
+                scale_unit = "kft"  # thousand feet
+        else:
+            # Metric: meters/kilometers
+            scale_unit = "m"
+            scale_label = round(scale_dist * modify)
+            if scale_label >= 1000:
+                scale_label = int(scale_label / 1000)
+                scale_unit = "km"
         scale_text = f"{scale_label}{scale_unit}\n(z{self.zoomlevel})"
         bar_width_px = self.hud_scale_width_px * modify
         bar_height_px = self.hud_scale_height_px
