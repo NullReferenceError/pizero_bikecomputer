@@ -72,7 +72,7 @@ class GUI_Qt_Base(QtCore.QObject):
         self.config.gui = self
         self._quit_requested = False
 
-        self.gui_config = GUI_Config(config.G_LAYOUT_FILE)
+        self.gui_config = GUI_Config(config.G_LAYOUT_FILE, config)
 
         self.init_window()
 
