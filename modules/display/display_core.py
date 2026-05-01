@@ -73,7 +73,7 @@ class Display:
 
     @property
     def has_status_bar(self):
-        return self.resolution[1] >= 300
+        return self.resolution[1] >= 240
 
     def start_coroutine(self):
         pass
