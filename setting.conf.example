@@ -1,20 +1,29 @@
 [GENERAL]
 display = Display_HAT_Mini
 
-# AutoStop: Automatically pause/resume recording based on speed and movement
+# AutoStop: Multi-sensor automatic pause/resume
 # Set to False to disable automatic pause (manual control only)
 use_autostop = True
 
-# AutoStop speed thresholds (km/h)
-# Pauses when speed drops below pause_threshold for pause_delay seconds
-# Resumes when speed exceeds resume_threshold (hysteresis prevents oscillation)
-autostop_pause_threshold = 1.0
-autostop_resume_threshold = 3.0
-autostop_pause_delay = 3.0
-autostop_resume_delay = 0.0
+# AutoStop uses multiple sensors to reliably detect stopped vs moving
+# PAUSE: Requires ALL sensors show stopped for pause_delay seconds
+#        (speed ≈ 0 AND motion = 0 AND power ≈ 0)
+# RESUME: Requires ANY sensor shows activity for resume_delay seconds
+#         (speed > 0 OR motion = 1 OR power > 0)
 
-# Legacy setting (for backward compatibility with older versions)
-autostop_cutoff = 3
+# Speed threshold (km/h) - accounts for GPS drift when stationary
+autostop_speed_threshold = 0.5
+# Power threshold (watts) - consider stopped below this
+autostop_power_threshold = 5
+
+# Time delays (seconds)
+autostop_pause_delay = 5.0    # 5s of complete stop required
+autostop_resume_delay = 1.0   # 1s of any activity resumes
+
+# Legacy settings (for backward compatibility)
+autostop_pause_threshold = 0.5
+autostop_resume_threshold = 1.0
+autostop_cutoff = 1
 wheel_circumference = 2105
 gross_ave_speed = 15
 lang = EN

@@ -148,17 +148,21 @@ class Config:
     # AutoStop enable/disable
     G_USE_AUTOSTOP = True  # Default: enabled
 
-    # AutoStop speed thresholds [m/s] (overwritten with setting.conf)
-    # Pause: must drop below this threshold for pause_delay seconds
-    # Resume: must exceed this threshold to resume recording
-    G_AUTOSTOP_PAUSE_THRESHOLD = 1.0 * 1000 / 3600   # 1 km/h = 0.278 m/s
-    G_AUTOSTOP_RESUME_THRESHOLD = 3.0 * 1000 / 3600  # 3 km/h = 0.833 m/s
+    # AutoStop thresholds for multi-sensor detection
+    # Speed threshold [m/s] - consider stopped if below this (accounts for GPS drift)
+    G_AUTOSTOP_SPEED_THRESHOLD = 0.5 * 1000 / 3600   # 0.5 km/h = 0.139 m/s
+    # Power threshold [watts] - consider stopped if below this
+    G_AUTOSTOP_POWER_THRESHOLD = 5  # watts
 
     # AutoStop time delays [seconds]
-    G_AUTOSTOP_PAUSE_DELAY = 3.0   # Must be stopped for 3 seconds to pause
-    G_AUTOSTOP_RESUME_DELAY = 0.0  # Resume instantly
+    # Pause: ALL sensors must show stopped (speed≈0 AND motion=0 AND power≈0) for this duration
+    G_AUTOSTOP_PAUSE_DELAY = 5.0   # 5 seconds of complete stop
+    # Resume: ANY sensor shows activity (speed OR motion OR power) for this duration
+    G_AUTOSTOP_RESUME_DELAY = 1.0  # 1 second of any activity
 
-    # Legacy single threshold (kept for backward compatibility during config read)
+    # Legacy thresholds (kept for backward compatibility during config read)
+    G_AUTOSTOP_PAUSE_THRESHOLD = G_AUTOSTOP_SPEED_THRESHOLD
+    G_AUTOSTOP_RESUME_THRESHOLD = 1.0 * 1000 / 3600  # 1 km/h
     G_AUTOSTOP_CUTOFF = G_AUTOSTOP_RESUME_THRESHOLD
 
     # wheel circumference [m] (overwritten from menu)

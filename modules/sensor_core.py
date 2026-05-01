@@ -145,8 +145,9 @@ class SensorCore:
             self.sensor_gps = SensorGPS(config, self.values["GPS"])
             app_logger.debug(f"[GPS] SensorGPS init took: {time.time() - start:.2f}s")
 
-        # AutoStop hysteresis state tracking (after time import above)
-        self.autostop_pause_timer = 0.0      # Seconds below pause threshold
+        # AutoStop multi-sensor state tracking (after time import above)
+        self.autostop_pause_timer = 0.0      # Seconds ALL sensors show stopped
+        self.autostop_resume_timer = 0.0     # Seconds ANY sensor shows activity
         self.autostop_last_check = time.time()  # Last evaluation timestamp
 
         timers = [
@@ -734,86 +735,95 @@ class SensorCore:
             calc_elapsed_ms = (time.perf_counter() - calc_start_perf) * 1000.0
             post_start_perf = time.perf_counter()
 
-            # toggle auto stop (if enabled)
-            if self.config.G_USE_AUTOSTOP:
-                # ANT+ or GPS speed is available
-                if not np.isnan(spd) and self.config.G_MANUAL_STATUS == "START":
-                    # Calculate elapsed time since last check
-                    now = time.time()
-                    elapsed = now - self.autostop_last_check
-                    self.autostop_last_check = now
-                    
-                    # Motion detection - check if accelerometer indicates movement
-                    flag_moving = False
-                    if v["I2C"]["m_stat"] == 1:
-                        flag_moving = True
-                    
-                    # Skip motion check in these cases:
-                    # - Accelerometer not available (nan)
-                    # - ANT+ speed sensor is available (more reliable)
-                    # - Dummy output mode
-                    if (
-                        np.isnan(v["I2C"]["m_stat"])
-                        or self.config.G_ANT["USE"]["SPD"]
-                        or self.config.G_DUMMY_OUTPUT
-                    ):
-                        flag_moving = True
-                    
-                    # CURRENTLY PAUSED - check for resume conditions
-                    if self.config.G_STOPWATCH_STATUS == "STOP":
-                        # Resume if: speed >= resume threshold AND moving
+            # toggle auto stop (if enabled) - multi-sensor approach
+            if self.config.G_USE_AUTOSTOP and self.config.G_MANUAL_STATUS == "START":
+                # Calculate elapsed time since last check
+                now = time.time()
+                elapsed = now - self.autostop_last_check
+                self.autostop_last_check = now
+                
+                # Multi-sensor activity detection
+                # Check each sensor independently
+                
+                # 1. SPEED: Check if moving based on speed (handle GPS drift/loss gracefully)
+                speed_active = False
+                speed_available = not np.isnan(spd)
+                if speed_available and spd > self.config.G_AUTOSTOP_SPEED_THRESHOLD:
+                    speed_active = True
+                
+                # 2. MOTION: Check accelerometer for movement
+                motion_active = False
+                motion_available = not np.isnan(v["I2C"]["m_stat"])
+                if motion_available and v["I2C"]["m_stat"] == 1:
+                    motion_active = True
+                
+                # 3. POWER: Check if producing power
+                power_active = False
+                power_available = not np.isnan(pwr)
+                if power_available and pwr > self.config.G_AUTOSTOP_POWER_THRESHOLD:
+                    power_active = True
+                
+                # Activity gate logic:
+                # - ANY sensor showing activity = moving
+                # - ALL sensors showing stopped (or unavailable) = stopped
+                any_activity = speed_active or motion_active or power_active
+                
+                # For stopped detection, require all AVAILABLE sensors to confirm stopped
+                # (don't penalize missing sensors)
+                all_stopped = True
+                if speed_available and speed_active:
+                    all_stopped = False
+                if motion_available and motion_active:
+                    all_stopped = False
+                if power_available and power_active:
+                    all_stopped = False
+                
+                # CURRENTLY PAUSED - check for resume conditions
+                if self.config.G_STOPWATCH_STATUS == "STOP":
+                    # Resume if ANY sensor shows activity for resume_delay duration
+                    if any_activity:
+                        self.autostop_resume_timer += elapsed
                         if (
-                            spd >= self.config.G_AUTOSTOP_RESUME_THRESHOLD
-                            and flag_moving
+                            self.autostop_resume_timer >= self.config.G_AUTOSTOP_RESUME_DELAY
                             and self.config.logger is not None
                         ):
-                            # Resume instantly (resume_delay = 0)
+                            # Resume recording
                             self.autostop_pause_timer = 0.0  # Reset pause timer
+                            self.autostop_resume_timer = 0.0  # Reset resume timer
                             self.config.logger.start_and_stop()
                             app_logger.info(
-                                f"AutoStop: RESUME (speed={spd*3.6:.1f} km/h, "
-                                f"threshold={self.config.G_AUTOSTOP_RESUME_THRESHOLD*3.6:.1f} km/h)"
+                                f"AutoStop: RESUME after {self.autostop_resume_timer:.1f}s "
+                                f"(speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
+                                f"motion={motion_active if motion_available else 'N/A'}, "
+                                f"power={int(pwr) if power_available else 'N/A'}W)"
                             )
-                        # else: stay paused
-                    
-                    # CURRENTLY RECORDING - check for pause conditions
-                    elif self.config.G_STOPWATCH_STATUS == "START":
-                        # Should pause if: speed < pause threshold OR not moving
-                        should_pause = (
-                            spd < self.config.G_AUTOSTOP_PAUSE_THRESHOLD
-                        ) or (not flag_moving)
-                        
-                        if should_pause:
-                            # Increment pause timer
-                            self.autostop_pause_timer += elapsed
-                            if (
-                                self.autostop_pause_timer >= self.config.G_AUTOSTOP_PAUSE_DELAY
-                                and self.config.logger is not None
-                            ):
-                                # Pause threshold met
-                                self.config.logger.start_and_stop()
-                                app_logger.info(
-                                    f"AutoStop: PAUSE after {self.autostop_pause_timer:.1f}s "
-                                    f"(speed={spd*3.6:.1f} km/h, "
-                                    f"threshold={self.config.G_AUTOSTOP_PAUSE_THRESHOLD*3.6:.1f} km/h, "
-                                    f"moving={flag_moving})"
-                                )
-                                # Keep timer at threshold to prevent re-pausing on next cycle
-                                self.autostop_pause_timer = self.config.G_AUTOSTOP_PAUSE_DELAY
-                        else:
-                            # Conditions good, reset timer
-                            self.autostop_pause_timer = 0.0
+                    else:
+                        # No activity, reset resume timer
+                        self.autostop_resume_timer = 0.0
                 
-                # ANT+ or GPS speed is not available
-                elif np.isnan(spd) and self.config.G_MANUAL_STATUS == "START":
-                    # stop recording if speed is broken
-                    if (
-                        (self.config.G_ANT["USE"]["SPD"] or "timestamp" in v["GPS"])
-                        and self.config.G_STOPWATCH_STATUS == "START"
-                        and self.config.logger is not None
-                    ):
-                        self.config.logger.start_and_stop()
-                        app_logger.info("AutoStop: PAUSE (speed data unavailable)")
+                # CURRENTLY RECORDING - check for pause conditions
+                elif self.config.G_STOPWATCH_STATUS == "START":
+                    # Pause if ALL available sensors show stopped for pause_delay duration
+                    if all_stopped:
+                        self.autostop_pause_timer += elapsed
+                        if (
+                            self.autostop_pause_timer >= self.config.G_AUTOSTOP_PAUSE_DELAY
+                            and self.config.logger is not None
+                        ):
+                            # Pause recording
+                            self.autostop_resume_timer = 0.0  # Reset resume timer
+                            self.config.logger.start_and_stop()
+                            app_logger.info(
+                                f"AutoStop: PAUSE after {self.autostop_pause_timer:.1f}s "
+                                f"(speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
+                                f"motion={motion_active if motion_available else 'N/A'}, "
+                                f"power={int(pwr) if power_available else 'N/A'}W)"
+                            )
+                            # Keep timer at threshold to prevent re-pausing
+                            self.autostop_pause_timer = self.config.G_AUTOSTOP_PAUSE_DELAY
+                    else:
+                        # Activity detected, reset pause timer
+                        self.autostop_pause_timer = 0.0
 
             # auto backlight & brake light with brightness
             auto_light = False
