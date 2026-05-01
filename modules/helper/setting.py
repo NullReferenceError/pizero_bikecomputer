@@ -25,9 +25,32 @@ class Setting:
 
         if "GENERAL" in self.config_parser:
             c = self.config_parser["GENERAL"]
+            # AutoStop enable/disable
+            if "USE_AUTOSTOP" in c:
+                self.config.G_USE_AUTOSTOP = c.getboolean("USE_AUTOSTOP")
+
+            # AutoStop thresholds and delays
+            if "AUTOSTOP_PAUSE_THRESHOLD" in c:
+                self.config.G_AUTOSTOP_PAUSE_THRESHOLD = (float(c["AUTOSTOP_PAUSE_THRESHOLD"]) / 3.6)
+            if "AUTOSTOP_RESUME_THRESHOLD" in c:
+                self.config.G_AUTOSTOP_RESUME_THRESHOLD = (float(c["AUTOSTOP_RESUME_THRESHOLD"]) / 3.6)
+            if "AUTOSTOP_PAUSE_DELAY" in c:
+                self.config.G_AUTOSTOP_PAUSE_DELAY = float(c["AUTOSTOP_PAUSE_DELAY"])
+            if "AUTOSTOP_RESUME_DELAY" in c:
+                self.config.G_AUTOSTOP_RESUME_DELAY = float(c["AUTOSTOP_RESUME_DELAY"])
+
+            # Backward compatibility: read legacy AUTOSTOP_CUTOFF
             if "AUTOSTOP_CUTOFF" in c:
-                self.config.G_AUTOSTOP_CUTOFF = (int(c["AUTOSTOP_CUTOFF"]) / 3.6)
-                self.config.G_GPS_SPEED_CUTOFF = self.config.G_AUTOSTOP_CUTOFF
+                legacy_cutoff = (float(c["AUTOSTOP_CUTOFF"]) / 3.6)
+                # If new settings not present, derive from legacy
+                if "AUTOSTOP_RESUME_THRESHOLD" not in c:
+                    self.config.G_AUTOSTOP_RESUME_THRESHOLD = legacy_cutoff
+                if "AUTOSTOP_PAUSE_THRESHOLD" not in c:
+                    # Set pause threshold 2 km/h below resume threshold
+                    self.config.G_AUTOSTOP_PAUSE_THRESHOLD = max(0.5 / 3.6, legacy_cutoff - 2.0 / 3.6)
+
+            # Update GPS speed cutoff to match pause threshold
+            self.config.G_GPS_SPEED_CUTOFF = self.config.G_AUTOSTOP_PAUSE_THRESHOLD
             if "WHEEL_CIRCUMFERENCE" in c:
                 self.config.G_WHEEL_CIRCUMFERENCE = (
                     int(c["WHEEL_CIRCUMFERENCE"]) / 1000
@@ -251,7 +274,13 @@ class Setting:
         self.config_parser["GENERAL"] = {}
         c = self.config_parser["GENERAL"]
         c["DISPLAY"] = self.config.G_DISPLAY
-        c["AUTOSTOP_CUTOFF"] = str(int(self.config.G_AUTOSTOP_CUTOFF * 3.6))
+        c["USE_AUTOSTOP"] = str(self.config.G_USE_AUTOSTOP)
+        c["AUTOSTOP_PAUSE_THRESHOLD"] = str(round(self.config.G_AUTOSTOP_PAUSE_THRESHOLD * 3.6, 1))
+        c["AUTOSTOP_RESUME_THRESHOLD"] = str(round(self.config.G_AUTOSTOP_RESUME_THRESHOLD * 3.6, 1))
+        c["AUTOSTOP_PAUSE_DELAY"] = str(self.config.G_AUTOSTOP_PAUSE_DELAY)
+        c["AUTOSTOP_RESUME_DELAY"] = str(self.config.G_AUTOSTOP_RESUME_DELAY)
+        # Keep legacy setting for old versions
+        c["AUTOSTOP_CUTOFF"] = str(int(self.config.G_AUTOSTOP_RESUME_THRESHOLD * 3.6))
         c["WHEEL_CIRCUMFERENCE"] = str(int(self.config.G_WHEEL_CIRCUMFERENCE * 1000))
         c["GROSS_AVE_SPEED"] = str(int(self.config.G_GROSS_AVE_SPEED))
         c["LANG"] = self.config.G_LANG

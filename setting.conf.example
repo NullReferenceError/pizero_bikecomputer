@@ -1,6 +1,20 @@
 [GENERAL]
 display = Display_HAT_Mini
-autostop_cutoff = 4
+
+# AutoStop: Automatically pause/resume recording based on speed and movement
+# Set to False to disable automatic pause (manual control only)
+use_autostop = True
+
+# AutoStop speed thresholds (km/h)
+# Pauses when speed drops below pause_threshold for pause_delay seconds
+# Resumes when speed exceeds resume_threshold (hysteresis prevents oscillation)
+autostop_pause_threshold = 1.0
+autostop_resume_threshold = 3.0
+autostop_pause_delay = 3.0
+autostop_resume_delay = 0.0
+
+# Legacy setting (for backward compatibility with older versions)
+autostop_cutoff = 3
 wheel_circumference = 2105
 gross_ave_speed = 15
 lang = EN

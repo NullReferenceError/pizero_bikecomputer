@@ -145,9 +145,21 @@ class Config:
     G_MANUAL_STATUS = "INIT"
     G_STOPWATCH_STATUS = "INIT"  # with Auto Pause
 
-    # auto pause cutoff [m/s] (overwritten with setting.conf)
-    # G_AUTOSTOP_CUTOFF = 0
-    G_AUTOSTOP_CUTOFF = 4.0 * 1000 / 3600
+    # AutoStop enable/disable
+    G_USE_AUTOSTOP = True  # Default: enabled
+
+    # AutoStop speed thresholds [m/s] (overwritten with setting.conf)
+    # Pause: must drop below this threshold for pause_delay seconds
+    # Resume: must exceed this threshold to resume recording
+    G_AUTOSTOP_PAUSE_THRESHOLD = 1.0 * 1000 / 3600   # 1 km/h = 0.278 m/s
+    G_AUTOSTOP_RESUME_THRESHOLD = 3.0 * 1000 / 3600  # 3 km/h = 0.833 m/s
+
+    # AutoStop time delays [seconds]
+    G_AUTOSTOP_PAUSE_DELAY = 3.0   # Must be stopped for 3 seconds to pause
+    G_AUTOSTOP_RESUME_DELAY = 0.0  # Resume instantly
+
+    # Legacy single threshold (kept for backward compatibility during config read)
+    G_AUTOSTOP_CUTOFF = G_AUTOSTOP_RESUME_THRESHOLD
 
     # wheel circumference [m] (overwritten from menu)
     # 700x23c: 2.096, 700x25c: 2.105, 700x28c: 2.136
@@ -215,7 +227,7 @@ class Config:
     }
 
     # GPS speed cutoff (the distance in 1 seconds at 0.36km/h is 10cm)
-    G_GPS_SPEED_CUTOFF = G_AUTOSTOP_CUTOFF  # m/s
+    G_GPS_SPEED_CUTOFF = G_AUTOSTOP_PAUSE_THRESHOLD  # m/s (use pause threshold for GPS noise filtering)
     # GPSd error handling
     G_GPSD_PARAM = {
         "EPX_EPY_CUTOFF": 100.0,

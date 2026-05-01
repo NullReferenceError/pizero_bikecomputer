@@ -12,15 +12,17 @@ class SensorMenuWidget(MenuWidget):
             ("BLE Sensors", "submenu", self.ble_sensors_menu),
             ("Wheel Size", "submenu", self.adjust_wheel_circumference),
             ("Auto Light", "toggle", lambda: self.onoff_auto_light(True)),
-            ("Auto Stop", None, None),
+            ("Auto Stop", "toggle", lambda: self.onoff_auto_stop(True)),
             ("Gross Ave Speed", None, None),
             ("Adjust Altitude", "submenu", self.adjust_altitude),
         )
         self.add_buttons(button_conf)
         self.onoff_auto_light(False)
+        self.onoff_auto_stop(False)
     
     def preprocess(self):
         self.buttons["Auto Light"].onoff_button(self.config.G_ANT["USE"]["LGT"])
+        self.buttons["Auto Stop"].change_toggle(self.config.G_USE_AUTOSTOP)
 
     def ant_sensors_menu(self):
         if self.sensor_ant.scanner.isUse:
@@ -41,6 +43,12 @@ class SensorMenuWidget(MenuWidget):
         if change:
             self.config.G_ANT["USE_AUTO_LIGHT"] = not self.config.G_ANT["USE_AUTO_LIGHT"] 
         self.buttons["Auto Light"].change_toggle(self.config.G_ANT["USE_AUTO_LIGHT"])
+
+    def onoff_auto_stop(self, change=True):
+        if change:
+            self.config.G_USE_AUTOSTOP = not self.config.G_USE_AUTOSTOP
+            self.config.setting.write_config()  # Save to setting.conf
+        self.buttons["Auto Stop"].change_toggle(self.config.G_USE_AUTOSTOP)
 
 
 class ANTMenuWidget(MenuWidget):
