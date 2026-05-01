@@ -227,6 +227,10 @@ class Config:
     # fullscreen switch (overwritten with setting.conf)
     G_FULLSCREEN = False
 
+    # unit system (overwritten with setting.conf)
+    # "metric" (km/h, km, m, C) or "imperial" (mph, mi, ft, F)
+    G_UNIT_SYSTEM = "metric"
+
     # display type (from setting.conf, falls back to auto-detect if "None")
     # PiTFT, MIP, MIP_640, MIP_Mraa, MIP_Mraa_640, MIP_Sharp, MIP_Sharp_320,
     # Papirus, DFRobot_RPi_Display, Pirate_Audio, Pirate_Audio_old(Y button is GPIO 20),

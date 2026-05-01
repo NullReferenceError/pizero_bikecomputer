@@ -45,6 +45,10 @@ class Setting:
                 self.config.G_AUTO_WIFI_OFF = c.getboolean("AUTO_WIFI_OFF")
             if "UPLOAD_FILE" in c:
                 self.config.G_UPLOAD_FILE = c["UPLOAD_FILE"]
+            if "UNIT_SYSTEM" in c:
+                unit_system = c["UNIT_SYSTEM"].lower()
+                if unit_system in ["metric", "imperial"]:
+                    self.config.G_UNIT_SYSTEM = unit_system
 
         if "BT" in self.config_parser:
             c = self.config_parser["BT"]
@@ -253,6 +257,7 @@ class Setting:
         c["LANG"] = self.config.G_LANG
         c["FONT_FILE"] = self.config.G_FONT_FILE
         c["AUTO_WIFI_OFF"] = str(self.config.G_AUTO_WIFI_OFF)
+        c["UNIT_SYSTEM"] = self.config.G_UNIT_SYSTEM
 
         self.config_parser["BT"] = {}
         c = self.config_parser["BT"]

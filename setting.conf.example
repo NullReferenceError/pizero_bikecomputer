@@ -4,6 +4,7 @@ autostop_cutoff = 4
 wheel_circumference = 2105
 gross_ave_speed = 15
 lang = EN
+unit_system = metric
 auto_wifi_off = False
 
 [ANT]

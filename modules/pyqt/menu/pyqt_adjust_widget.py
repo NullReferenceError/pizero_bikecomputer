@@ -155,21 +155,40 @@ class AdjustAltitudeWidget(AdjustWidget):
 
 
 class AdjustWheelCircumferenceWidget(AdjustWidget):
-    unit = "mm"
+    def __init__(self, *args, **kwargs):
+        # Set unit based on config before calling super().__init__
+        # Access config from kwargs (passed in by MenuWidget)
+        config = kwargs.get('config') or (args[2] if len(args) > 2 else None)
+        if config and config.G_UNIT_SYSTEM == "imperial":
+            self.unit = "in"
+        else:
+            self.unit = "mm"
+        super().__init__(*args, **kwargs)
 
     def init_extra(self):
         self.display.setMaxLength(4)
 
     async def set_value_extra(self, value):
         pre_v = self.config.G_WHEEL_CIRCUMFERENCE
-        v = value / 1000
+        if self.config.G_UNIT_SYSTEM == "imperial":
+            # value is in inches, convert to meters
+            v = (value * 25.4) / 1000  # inches to mm to meters
+        else:
+            # value is in mm, convert to meters
+            v = value / 1000
         self.config.G_WHEEL_CIRCUMFERENCE = v
         app_logger.info(
             f"set G_WHEEL_CIRCUMFERENCE from {pre_v} to {self.config.G_WHEEL_CIRCUMFERENCE}"
         )
 
     def preprocess(self):
-        self.display.setText(str(int(self.config.G_WHEEL_CIRCUMFERENCE * 1000)))
+        if self.config.G_UNIT_SYSTEM == "imperial":
+            # Display in inches
+            display_value = int((self.config.G_WHEEL_CIRCUMFERENCE * 1000) / 25.4)
+        else:
+            # Display in mm
+            display_value = int(self.config.G_WHEEL_CIRCUMFERENCE * 1000)
+        self.display.setText(str(display_value))
 
 
 class AdjustCPWidget(AdjustWidget):

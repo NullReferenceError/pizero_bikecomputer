@@ -72,12 +72,14 @@ class GUI_Qt_Base(QtCore.QObject):
         self.config.gui = self
         self._quit_requested = False
 
-        self.gui_config = GUI_Config(config.G_LAYOUT_FILE)
+        self.gui_config = GUI_Config(config.G_LAYOUT_FILE, config)
 
         self.init_window()
 
     def _enqueue_msg(self, msg):
-        asyncio.create_task(self.msg_queue.put(msg))
+        # msg_queue is initialized in subclass (gui_pyqt.py), check if ready
+        if hasattr(self, 'msg_queue') and self.msg_queue is not None:
+            asyncio.create_task(self.msg_queue.put(msg))
 
     async def delay_init(self):
         loop = asyncio.get_running_loop()
