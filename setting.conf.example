@@ -1,26 +1,27 @@
 [GENERAL]
 display = Display_HAT_Mini
 
-# AutoStop: Multi-sensor automatic pause/resume
+# AutoStop: Multi-sensor majority voting for reliable pause/resume
 # Set to False to disable automatic pause (manual control only)
 use_autostop = True
 
-# AutoStop uses multiple sensors to reliably detect stopped vs moving
-# PAUSE: Requires ALL sensors show stopped for pause_delay seconds
-#        (speed ≈ 0 AND motion = 0 AND power ≈ 0)
-# RESUME: Requires ANY sensor shows activity for resume_delay seconds
-#         (speed > 0 OR motion = 1 OR power > 0)
+# AutoStop uses majority voting from available sensors:
+# - Each sensor (speed, motion, power) gets one vote
+# - Majority determines action (stopped vs moving)
+# - PAUSE: Requires >50% sensors vote "stopped" for pause_delay seconds
+# - RESUME: Requires >50% sensors vote "moving" for resume_delay seconds
+# - Strong activity (speed > 2 km/h OR power > 10W) triggers instant resume
+# - On tie votes (1-1): defaults to keep recording (fail-safe)
 
-# Speed threshold (km/h) - accounts for GPS drift when stationary
-autostop_speed_threshold = 0.5
-# Power threshold (watts) - consider stopped below this
-autostop_power_threshold = 5
+# Sensor voting thresholds
+autostop_speed_threshold = 0.5    # km/h - below this votes "stopped"
+autostop_power_threshold = 5      # watts - below this votes "stopped"
 
 # Time delays (seconds)
-autostop_pause_delay = 5.0    # 5s of complete stop required
-autostop_resume_delay = 1.0   # 1s of any activity resumes
+autostop_pause_delay = 5.0        # majority stopped for this long
+autostop_resume_delay = 1.0       # majority moving for this long
 
-# Legacy settings (for backward compatibility)
+# Legacy settings (backward compatibility)
 autostop_pause_threshold = 0.5
 autostop_resume_threshold = 1.0
 autostop_cutoff = 1

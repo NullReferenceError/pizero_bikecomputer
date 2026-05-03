@@ -146,9 +146,11 @@ class SensorCore:
             app_logger.debug(f"[GPS] SensorGPS init took: {time.time() - start:.2f}s")
 
         # AutoStop multi-sensor state tracking (after time import above)
-        self.autostop_pause_timer = 0.0      # Seconds ALL sensors show stopped
-        self.autostop_resume_timer = 0.0     # Seconds ANY sensor shows activity
+        self.autostop_pause_timer = 0.0      # Seconds majority votes stopped
+        self.autostop_resume_timer = 0.0     # Seconds majority votes moving
         self.autostop_last_check = time.time()  # Last evaluation timestamp
+        self.autostop_debug_log_interval = 5.0  # Log debug info every 5 seconds
+        self.autostop_last_debug_log = time.time()  # Last debug log timestamp
 
         timers = [
             Timer(auto_start=False, text="  ANT+ : {0:.3f} sec"),
@@ -735,91 +737,115 @@ class SensorCore:
             calc_elapsed_ms = (time.perf_counter() - calc_start_perf) * 1000.0
             post_start_perf = time.perf_counter()
 
-            # toggle auto stop (if enabled) - multi-sensor approach
+            # toggle auto stop (if enabled) - MAJORITY VOTING approach
             if self.config.G_USE_AUTOSTOP and self.config.G_MANUAL_STATUS == "START":
                 # Calculate elapsed time since last check
                 now = time.time()
                 elapsed = now - self.autostop_last_check
                 self.autostop_last_check = now
                 
-                # Multi-sensor activity detection
-                # Check each sensor independently
+                # Multi-sensor activity detection - MAJORITY VOTING
+                # Each sensor gets one vote: "stopped" or "moving"
                 
-                # 1. SPEED: Check if moving based on speed (handle GPS drift/loss gracefully)
-                speed_active = False
+                # Initialize vote counters
+                votes_stopped = 0
+                votes_moving = 0
+                total_votes = 0
+                
+                # 1. SPEED: Check if moving based on speed
                 speed_available = not np.isnan(spd)
-                if speed_available and spd > self.config.G_AUTOSTOP_SPEED_THRESHOLD:
-                    speed_active = True
+                if speed_available:
+                    total_votes += 1
+                    if spd < self.config.G_AUTOSTOP_SPEED_THRESHOLD:
+                        votes_stopped += 1
+                    else:
+                        votes_moving += 1
                 
                 # 2. MOTION: Check accelerometer for movement
-                motion_active = False
                 motion_available = not np.isnan(v["I2C"]["m_stat"])
-                if motion_available and v["I2C"]["m_stat"] == 1:
-                    motion_active = True
+                if motion_available:
+                    total_votes += 1
+                    if v["I2C"]["m_stat"] == 0:
+                        votes_stopped += 1
+                    else:
+                        votes_moving += 1
                 
                 # 3. POWER: Check if producing power
-                power_active = False
                 power_available = not np.isnan(pwr)
-                if power_available and pwr > self.config.G_AUTOSTOP_POWER_THRESHOLD:
-                    power_active = True
+                if power_available:
+                    total_votes += 1
+                    if pwr < self.config.G_AUTOSTOP_POWER_THRESHOLD:
+                        votes_stopped += 1
+                    else:
+                        votes_moving += 1
                 
-                # Activity gate logic:
-                # - ANY sensor showing activity = moving
-                # - ALL sensors showing stopped (or unavailable) = stopped
-                any_activity = speed_active or motion_active or power_active
+                # Strong activity override (definitely moving, instant action)
+                strong_activity = (
+                    (speed_available and spd > 2.0 * 1000 / 3600) or  # > 2 km/h
+                    (power_available and pwr > 10)  # > 10W
+                )
                 
-                # For stopped detection, require all AVAILABLE sensors to confirm stopped
-                # (don't penalize missing sensors)
-                all_stopped = True
-                if speed_available and speed_active:
-                    all_stopped = False
-                if motion_available and motion_active:
-                    all_stopped = False
-                if power_available and power_active:
-                    all_stopped = False
+                # Determine majority (favor recording on ties - Option A)
+                should_pause = (votes_stopped > votes_moving)
+                should_resume = (votes_moving > votes_stopped) or strong_activity
+                
+                # Debug logging (every 5 seconds while recording)
+                if self.config.G_STOPWATCH_STATUS == "START":
+                    if now - self.autostop_last_debug_log >= self.autostop_debug_log_interval:
+                        self.autostop_last_debug_log = now
+                        app_logger.debug(
+                            f"AutoStop: votes_stopped={votes_stopped}/{total_votes}, "
+                            f"votes_moving={votes_moving}/{total_votes}, "
+                            f"speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
+                            f"motion={v['I2C']['m_stat'] if motion_available else 'N/A'}, "
+                            f"power={int(pwr) if power_available else 'N/A'}W, "
+                            f"pause_timer={self.autostop_pause_timer:.1f}s, "
+                            f"strong_activity={strong_activity}"
+                        )
                 
                 # CURRENTLY PAUSED - check for resume conditions
                 if self.config.G_STOPWATCH_STATUS == "STOP":
-                    # Resume if ANY sensor shows activity for resume_delay duration
-                    if any_activity:
+                    if should_resume:
                         self.autostop_resume_timer += elapsed
                         if (
                             self.autostop_resume_timer >= self.config.G_AUTOSTOP_RESUME_DELAY
                             and self.config.logger is not None
                         ):
                             # Resume recording
-                            self.autostop_pause_timer = 0.0  # Reset pause timer
-                            self.autostop_resume_timer = 0.0  # Reset resume timer
+                            self.autostop_pause_timer = 0.0
+                            self.autostop_resume_timer = 0.0
                             self.config.logger.start_and_stop()
                             app_logger.info(
                                 f"AutoStop: RESUME after {self.autostop_resume_timer:.1f}s "
-                                f"(speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
-                                f"motion={motion_active if motion_available else 'N/A'}, "
-                                f"power={int(pwr) if power_available else 'N/A'}W)"
+                                f"(votes: {votes_moving}/{total_votes} moving, "
+                                f"speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
+                                f"motion={v['I2C']['m_stat'] if motion_available else 'N/A'}, "
+                                f"power={int(pwr) if power_available else 'N/A'}W, "
+                                f"strong_activity={strong_activity})"
                             )
                     else:
-                        # No activity, reset resume timer
+                        # No resume activity, reset timer
                         self.autostop_resume_timer = 0.0
                 
                 # CURRENTLY RECORDING - check for pause conditions
                 elif self.config.G_STOPWATCH_STATUS == "START":
-                    # Pause if ALL available sensors show stopped for pause_delay duration
-                    if all_stopped:
+                    if should_pause:
                         self.autostop_pause_timer += elapsed
                         if (
                             self.autostop_pause_timer >= self.config.G_AUTOSTOP_PAUSE_DELAY
                             and self.config.logger is not None
                         ):
                             # Pause recording
-                            self.autostop_resume_timer = 0.0  # Reset resume timer
+                            self.autostop_resume_timer = 0.0
                             self.config.logger.start_and_stop()
                             app_logger.info(
                                 f"AutoStop: PAUSE after {self.autostop_pause_timer:.1f}s "
-                                f"(speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
-                                f"motion={motion_active if motion_available else 'N/A'}, "
+                                f"(votes: {votes_stopped}/{total_votes} stopped, "
+                                f"speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
+                                f"motion={v['I2C']['m_stat'] if motion_available else 'N/A'}, "
                                 f"power={int(pwr) if power_available else 'N/A'}W)"
                             )
-                            # Keep timer at threshold to prevent re-pausing
+                            # Keep timer at threshold
                             self.autostop_pause_timer = self.config.G_AUTOSTOP_PAUSE_DELAY
                     else:
                         # Activity detected, reset pause timer
