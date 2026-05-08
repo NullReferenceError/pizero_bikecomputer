@@ -415,9 +415,10 @@ class SensorCore:
                 try:
                     self.sensor_ant.update()  # for dummy
                 except Exception as e:
-                    import traceback
-                    app_logger.warning(f"[ANT+] USB communication error in update: {e}")
-                    app_logger.debug(traceback.format_exc())
+                    import traceback, sys
+                    # FIX: Use non-blocking print instead of app_logger
+                    print(f"[ANT+] USB communication error in update: {e}", file=sys.stderr, flush=True)
+                    print(traceback.format_exc(), file=sys.stderr, flush=True)
 
             ant_update_elapsed_ms = (time.perf_counter() - ant_update_start) * 1000.0
             calc_start_perf = time.perf_counter()
@@ -793,14 +794,21 @@ class SensorCore:
                 if self.config.G_STOPWATCH_STATUS == "START":
                     if now - self.autostop_last_debug_log >= self.autostop_debug_log_interval:
                         self.autostop_last_debug_log = now
-                        app_logger.debug(
+                        # FIX: Use asyncio-safe logging instead of blocking app_logger.debug()
+                        # The blocking I/O from app_logger.debug() was freezing the async event loop
+                        import sys
+                        speed_str = f"{spd*3.6:.1f}" if speed_available else "N/A"
+                        motion_str = str(v['I2C']['m_stat']) if motion_available else "N/A"
+                        power_str = str(int(pwr)) if power_available else "N/A"
+                        print(
                             f"AutoStop: votes_stopped={votes_stopped}/{total_votes}, "
                             f"votes_moving={votes_moving}/{total_votes}, "
-                            f"speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
-                            f"motion={v['I2C']['m_stat'] if motion_available else 'N/A'}, "
-                            f"power={int(pwr) if power_available else 'N/A'}W, "
+                            f"speed={speed_str} km/h, "
+                            f"motion={motion_str}, "
+                            f"power={power_str}W, "
                             f"pause_timer={self.autostop_pause_timer:.1f}s, "
-                            f"strong_activity={strong_activity}"
+                            f"strong_activity={strong_activity}",
+                            file=sys.stderr, flush=True
                         )
                 
                 # CURRENTLY PAUSED - check for resume conditions
@@ -815,13 +823,19 @@ class SensorCore:
                             self.autostop_pause_timer = 0.0
                             self.autostop_resume_timer = 0.0
                             self.config.logger.start_and_stop()
-                            app_logger.info(
+                            # FIX: Use non-blocking print instead of app_logger.info()
+                            import sys
+                            speed_str = f"{spd*3.6:.1f}" if speed_available else "N/A"
+                            motion_str = str(v['I2C']['m_stat']) if motion_available else "N/A"
+                            power_str = str(int(pwr)) if power_available else "N/A"
+                            print(
                                 f"AutoStop: RESUME after {self.autostop_resume_timer:.1f}s "
                                 f"(votes: {votes_moving}/{total_votes} moving, "
-                                f"speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
-                                f"motion={v['I2C']['m_stat'] if motion_available else 'N/A'}, "
-                                f"power={int(pwr) if power_available else 'N/A'}W, "
-                                f"strong_activity={strong_activity})"
+                                f"speed={speed_str} km/h, "
+                                f"motion={motion_str}, "
+                                f"power={power_str}W, "
+                                f"strong_activity={strong_activity})",
+                                file=sys.stderr, flush=True
                             )
                     else:
                         # No resume activity, reset timer
@@ -838,12 +852,18 @@ class SensorCore:
                             # Pause recording
                             self.autostop_resume_timer = 0.0
                             self.config.logger.start_and_stop()
-                            app_logger.info(
+                            # FIX: Use non-blocking print instead of app_logger.info()
+                            import sys
+                            speed_str = f"{spd*3.6:.1f}" if speed_available else "N/A"
+                            motion_str = str(v['I2C']['m_stat']) if motion_available else "N/A"
+                            power_str = str(int(pwr)) if power_available else "N/A"
+                            print(
                                 f"AutoStop: PAUSE after {self.autostop_pause_timer:.1f}s "
                                 f"(votes: {votes_stopped}/{total_votes} stopped, "
-                                f"speed={spd*3.6:.1f if speed_available else 'N/A'} km/h, "
-                                f"motion={v['I2C']['m_stat'] if motion_available else 'N/A'}, "
-                                f"power={int(pwr) if power_available else 'N/A'}W)"
+                                f"speed={speed_str} km/h, "
+                                f"motion={motion_str}, "
+                                f"power={power_str}W)",
+                                file=sys.stderr, flush=True
                             )
                             # Keep timer at threshold
                             self.autostop_pause_timer = self.config.G_AUTOSTOP_PAUSE_DELAY
@@ -880,11 +900,14 @@ class SensorCore:
             if self.config.G_ANT["USE_AUTO_LIGHT"] and self.config.G_MANUAL_STATUS == "START":
                 if speed_brake_hint or cadence_brake_hint or power_brake_hint:
                     auto_light = True
-                    app_logger.debug(
+                    # FIX: Use non-blocking print instead of app_logger.debug()
+                    import sys
+                    print(
                         "[BRAKELIGHT] fire "
                         f"speed={int(speed_brake_hint)} "
                         f"cadence={int(cadence_brake_hint)} "
-                        f"pitch={int(pitch_brake_hint)}"
+                        f"pitch={int(pitch_brake_hint)}",
+                        file=sys.stderr, flush=True
                     )
 
                 if self.sensor_ant:
@@ -894,9 +917,10 @@ class SensorCore:
                         else:
                             self.sensor_ant.set_light_mode("OFF", auto=True)
                     except Exception as e:
-                        import traceback
-                        app_logger.warning(f"[ANT+] USB communication error in auto light: {e}")
-                        app_logger.debug(traceback.format_exc())
+                        import traceback, sys
+                        # FIX: Use non-blocking print instead of app_logger
+                        print(f"[ANT+] USB communication error in auto light: {e}", file=sys.stderr, flush=True)
+                        print(traceback.format_exc(), file=sys.stderr, flush=True)
 
             # cpu and memory
             self.values["integrated"]["system_cpu_percent"] = int(
@@ -934,16 +958,22 @@ class SensorCore:
                     time_profile[i] - time_profile[i - 1]
                 ).total_seconds()
             if time_progile_sec > 1.5 * self.config.G_SENSOR_INTERVAL:
-                app_logger.warning(
-                    f"too long loop time, sec_diff: {sec_diff}"
-                    f"(def/sensor_ant.update()/make variables(too long)/post-processing)"
+                # FIX: Use non-blocking print instead of app_logger.warning()
+                import sys
+                print(
+                    f"WARNING: too long loop time, sec_diff: {sec_diff}"
+                    f"(def/sensor_ant.update()/make variables(too long)/post-processing)",
+                    file=sys.stderr, flush=True
                 )
 
             loop_time = (datetime.now() - start_time).total_seconds()
             d1, d2 = divmod(loop_time, self.config.G_SENSOR_INTERVAL)
             if d1 > self.config.G_SENSOR_INTERVAL * 10:  # [s]
-                app_logger.warning(
-                    f"too long loop_time({self.__class__.__name__}):{loop_time:.2f}, interval:{self.config.G_SENSOR_INTERVAL:.1f}"
+                # FIX: Use non-blocking print instead of app_logger.warning()
+                import sys
+                print(
+                    f"WARNING: too long loop_time({self.__class__.__name__}):{loop_time:.2f}, interval:{self.config.G_SENSOR_INTERVAL:.1f}",
+                    file=sys.stderr, flush=True
                 )
                 d1 = d2 = 0
             self.wait_time = self.config.G_SENSOR_INTERVAL - d2
