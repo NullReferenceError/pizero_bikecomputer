@@ -163,7 +163,9 @@ class SensorGPIO(Sensor):
                 for event in events:
                     await self._handle_edge_event(event)
             except Exception as e:
-                app_logger.debug(f"Error reading edge events: {e}")
+                # FIX: Use non-blocking print to avoid freezing event loop
+                import sys
+                print(f"Error reading edge events: {e}", file=sys.stderr, flush=True)
                 continue
 
             # Also check long press after processing events
