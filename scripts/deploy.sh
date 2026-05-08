@@ -80,12 +80,14 @@ run_install() {
 
 start_bikecomputer() {
     echo "▶️  Starting pizero_bikecomputer..."
-    ssh "$PI_HOST" "cd $PI_PATH && QT_QPA_PLATFORM=offscreen $VENV_PYTHON pizero_bikecomputer.py"
+    ssh "$PI_HOST" "sudo systemctl start pizero_bikecomputer.service"
+    #ssh "$PI_HOST" "cd $PI_PATH && QT_QPA_PLATFORM=offscreen $VENV_PYTHON pizero_bikecomputer.py"
 }
 
 stop_bikecomputer() {
     echo "⏹️  Stopping pizero_bikecomputer..."
-    ssh "$PI_HOST" "pkill -f pizero_bikecomputer.py || true"
+    ssh "$PI_HOST" "sudo systemctl stop pizero_bikecomputer.service"
+    #ssh "$PI_HOST" "pkill -f pizero_bikecomputer.py || true"
 }
 
 check_logs() {
