@@ -65,13 +65,16 @@ class CXD5610_GPS(AbstractSensorGPS):
                 # Read the latest data snapshot updated by the C worker thread.
                 ret = self.dev.peek()
             except Exception as exc:
-                app_logger.error(f"[CXD5610] Read error: {exc}")
+                # FIX: Use non-blocking print to avoid freezing event loop
+                import sys
+                print(f"[CXD5610] Read error: {exc}", file=sys.stderr, flush=True)
                 await asyncio.sleep(1.0)
                 continue
 
             if ret < 0:
                 if ret != -errno.EAGAIN:
-                    app_logger.warning(f"[CXD5610] Read returned {ret}")
+                    import sys
+                    print(f"[CXD5610] Read returned {ret}", file=sys.stderr, flush=True)
                 self.get_sleep_time(self.config.G_GPS_INTERVAL)
                 await self.sleep()
                 continue

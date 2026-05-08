@@ -176,19 +176,24 @@ class GPSD(AbstractSensorGPS):
                             gpsd.utc,
                         )
             except asyncio.CancelledError:
-                app_logger.error('[GPSd]connection cancelled')
+                # FIX: Use non-blocking print to avoid freezing event loop
+                import sys
+                print('[GPSd]connection cancelled', file=sys.stderr, flush=True)
                 self.config.gui.show_dialog_ok_only(None, '[GPSd]connection cancelled')
                 break
             except asyncio.IncompleteReadError:
-                app_logger.error('[GPSd]Connection closed by gpsd server')
+                import sys
+                print('[GPSd]Connection closed by gpsd server', file=sys.stderr, flush=True)
                 self.config.gui.show_dialog_ok_only(None, '[GPSd]Connection closed by gpsd server')
                 await asyncio.sleep(1.0)
             except asyncio.TimeoutError:
-                app_logger.error('[GPSd]Timeout')
+                import sys
+                print('[GPSd]Timeout', file=sys.stderr, flush=True)
                 self.config.gui.show_dialog_ok_only(None, '[GPSd]Timeout')
                 await asyncio.sleep(1.0)
             except Exception as exc:
-                app_logger.error(f'[GPSd]aiogps error: {exc}')
+                import sys
+                print(f'[GPSd]aiogps error: {exc}', file=sys.stderr, flush=True)
                 self.config.gui.show_dialog_ok_only(None, '[GPSd]aiogps error')
                 await asyncio.sleep(1.0)
             finally:
