@@ -169,6 +169,7 @@ class ScreenWidget(QtWidgets.QWidget):
             getter = getattr(item, "value_getter", None)
             if getter is None:
                 continue
+            
             try:
                 value = getter()
             except KeyError:
